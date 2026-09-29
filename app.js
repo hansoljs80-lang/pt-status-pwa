@@ -48,6 +48,12 @@ class PTApp {
     this.supabaseClient = null;
     this.supabaseSyncTimer = null;
 
+    // Range Selection (Click & Drag)
+    this.isSelectingRange = false;
+    this.rangeStart = null; // { rowIdx, colIdx, colKey }
+    this.rangeEnd = null;   // { rowIdx, colIdx, colKey }
+    this.selectedRange = null; // { minRow, maxRow, minCol, maxCol }
+
     this.cacheElements();
     this.bindEvents();
     this.initColumnResizing();
@@ -309,6 +315,16 @@ class PTApp {
         this.closeSupabaseModal();
       }
     });
+
+    // Global mouseup to finish drag selection
+    document.addEventListener("mouseup", () => {
+      if (this.isSelectingRange) {
+        this.isSelectingRange = false;
+        if (this.elSheetContainer) {
+          this.elSheetContainer.classList.remove("is-selecting");
+        }
+      }
+    });
   }
 
   // Get or initialize rows for a given date (guarantee minimum DEFAULT_ROW_COUNT = 150 rows)
@@ -430,6 +446,7 @@ class PTApp {
         td.className = `excel-cell cell-${key}`;
         td.dataset.row = rowIdx;
         td.dataset.col = key;
+        td.dataset.colIdx = colIdx;
         td.dataset.colLetter = colLetters[colIdx];
         td.dataset.excelRow = excelRowNum;
 
@@ -442,18 +459,68 @@ class PTApp {
           if (val === "M") td.classList.add("m");
           td.title = "클릭하여 F/M 변경 가능";
         } else {
-          // Normal text content or editable
           td.textContent = val;
         }
 
-        // Cell Click handler
+        // Cell Mouse Down handler (Start Drag Selection)
+        td.addEventListener("mousedown", (e) => {
+          if (e.button !== 0) return; // Only Left Click
+          // If already editing inside input, don't interrupt text cursor
+          if (e.target.tagName === "INPUT") return;
+
+          this.isSelectingRange = true;
+          this.rangeStart = { rowIdx, colIdx, colKey: key };
+          this.rangeEnd = { rowIdx, colIdx, colKey: key };
+
+          if (this.elSheetContainer) {
+            this.elSheetContainer.classList.add("is-selecting");
+          }
+
+          this.selectCell(rowIdx, key, td, false);
+          this.updateRangeSelection();
+        });
+
+        // Cell Mouse Enter handler (Drag range expansion)
+        td.addEventListener("mouseenter", () => {
+          if (!this.isSelectingRange) return;
+          this.rangeEnd = { rowIdx, colIdx, colKey: key };
+          this.updateRangeSelection();
+        });
+
+        // Cell Click handler (Secondary click for edit, or gender toggle)
         td.addEventListener("click", (e) => {
-          this.selectCell(rowIdx, key, td);
+          if (key === "gender") {
+            const current = row.gender;
+            let next = "";
+            if (!current || current === "") next = "F";
+            else if (current === "F") next = "M";
+            else if (current === "M") next = "";
+            row.gender = next;
+            td.textContent = next;
+            td.classList.remove("f", "m");
+            if (next === "F") td.classList.add("f");
+            if (next === "M") td.classList.add("m");
+            this.elFormulaInput.value = next;
+            this.saveDataStore();
+            return;
+          }
+
+          // If clicking an already active cell, enter inline edit mode
+          if (
+            this.activeCell &&
+            this.activeCell.rowIdx === rowIdx &&
+            this.activeCell.colKey === key &&
+            !td.querySelector("input")
+          ) {
+            this.startInlineEdit(rowIdx, key, td);
+          }
         });
 
         // Cell Double Click to inline edit
-        td.addEventListener("dblclick", (e) => {
-          this.startInlineEdit(rowIdx, key, td);
+        td.addEventListener("dblclick", () => {
+          if (key !== "gender") {
+            this.startInlineEdit(rowIdx, key, td);
+          }
         });
 
         tr.appendChild(td);
@@ -488,7 +555,7 @@ class PTApp {
   }
 
   // Select and focus cell like Excel
-  selectCell(rowIdx, colKey, cellElement) {
+  selectCell(rowIdx, colKey, cellElement, startEdit = false) {
     this.activeCell = { rowIdx, colKey };
     this.selectedRowIdx = rowIdx;
 
@@ -514,25 +581,9 @@ class PTApp {
     const cellValue = rows[rowIdx] ? (rows[rowIdx][colKey] || "") : "";
     this.elFormulaInput.value = cellValue;
 
-    // If Gender column, toggle on click
-    if (colKey === "gender") {
-      const current = rows[rowIdx].gender;
-      let next = "";
-      if (!current || current === "") next = "F";
-      else if (current === "F") next = "M";
-      else if (current === "M") next = "";
-      rows[rowIdx].gender = next;
-      cellElement.textContent = next;
-      cellElement.classList.remove("f", "m");
-      if (next === "F") cellElement.classList.add("f");
-      if (next === "M") cellElement.classList.add("m");
-      this.elFormulaInput.value = next;
-      this.saveDataStore();
-      return;
+    if (startEdit) {
+      this.startInlineEdit(rowIdx, colKey, cellElement);
     }
-
-    // Direct single click turns into editable input for fast data entry
-    this.startInlineEdit(rowIdx, colKey, cellElement);
   }
 
   highlightCell(cellElement) {
@@ -682,8 +733,87 @@ class PTApp {
       el.classList.remove("selected");
     });
     document.querySelectorAll(".excel-cell").forEach((el) => {
-      el.classList.remove("col-selected", "row-selected", "all-selected");
+      el.classList.remove(
+        "col-selected",
+        "row-selected",
+        "all-selected",
+        "range-selected",
+        "range-border-top",
+        "range-border-bottom",
+        "range-border-left",
+        "range-border-right"
+      );
     });
+    this.selectedRange = null;
+  }
+
+  updateRangeSelection() {
+    if (!this.rangeStart || !this.rangeEnd) return;
+
+    const minRow = Math.min(this.rangeStart.rowIdx, this.rangeEnd.rowIdx);
+    const maxRow = Math.max(this.rangeStart.rowIdx, this.rangeEnd.rowIdx);
+    const minCol = Math.min(this.rangeStart.colIdx, this.rangeEnd.colIdx);
+    const maxCol = Math.max(this.rangeStart.colIdx, this.rangeEnd.colIdx);
+
+    this.selectedRange = { minRow, maxRow, minCol, maxCol };
+
+    // Clear previous range highlight classes
+    document.querySelectorAll(".excel-cell").forEach((c) => {
+      c.classList.remove(
+        "range-selected",
+        "range-border-top",
+        "range-border-bottom",
+        "range-border-left",
+        "range-border-right"
+      );
+    });
+
+    const colLetters = ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K"];
+    let cellCount = 0;
+    let numericSum = 0;
+    let numericCount = 0;
+
+    for (let r = minRow; r <= maxRow; r++) {
+      for (let c = minCol; c <= maxCol; c++) {
+        const cell = document.querySelector(`.excel-cell[data-row="${r}"][data-col-idx="${c}"]`);
+        if (cell) {
+          cellCount++;
+          cell.classList.add("range-selected");
+
+          if (r === minRow) cell.classList.add("range-border-top");
+          if (r === maxRow) cell.classList.add("range-border-bottom");
+          if (c === minCol) cell.classList.add("range-border-left");
+          if (c === maxCol) cell.classList.add("range-border-right");
+
+          const textVal = cell.textContent.trim();
+          const num = parseFloat(textVal);
+          if (!isNaN(num) && isFinite(num) && String(num) === textVal) {
+            numericSum += num;
+            numericCount++;
+          }
+        }
+      }
+    }
+
+    const startLetter = colLetters[this.rangeStart.colIdx] || "A";
+    const startRowNum = BASE_ROW_NUMBER + this.rangeStart.rowIdx;
+
+    if (minRow === maxRow && minCol === maxCol) {
+      // Single cell selected
+      this.elCellAddress.textContent = `${startLetter}${startRowNum}`;
+      this.elSelectedCellCoords.textContent = `${startLetter}${startRowNum}`;
+    } else {
+      // Multi-cell range selected (e.g. C3:E8)
+      const rangeText = `${colLetters[minCol]}${BASE_ROW_NUMBER + minRow}:${colLetters[maxCol]}${BASE_ROW_NUMBER + maxRow}`;
+      this.elCellAddress.textContent = rangeText;
+
+      let statText = `선택: ${rangeText} (${cellCount}개 셀)`;
+      if (numericCount > 0) {
+        const avg = (numericSum / numericCount).toFixed(1);
+        statText += ` | 개수: ${numericCount} | 합계: ${numericSum} | 평균: ${avg}`;
+      }
+      this.elSelectedCellCoords.textContent = statText;
+    }
   }
 
   selectEntireColumn(colKey, colLetter) {
@@ -1428,8 +1558,27 @@ class PTApp {
       return;
     }
 
-    // Delete or Backspace when row/col is selected
+    // Delete or Backspace when range or row/col is selected
     if (e.key === "Delete" || e.key === "Backspace") {
+      if (this.selectedRange) {
+        e.preventDefault();
+        const { minRow, maxRow, minCol, maxCol } = this.selectedRange;
+        const colKeys = ["no", "gender", "chartNo", "name", "part", "prescription", "extra", "writer", "memo", "specialNote", "date"];
+        const rows = this.getCurrentRows();
+        for (let r = minRow; r <= maxRow; r++) {
+          if (rows[r]) {
+            for (let c = minCol; c <= maxCol; c++) {
+              const k = colKeys[c];
+              if (k && k !== "date") {
+                rows[r][k] = "";
+              }
+            }
+          }
+        }
+        this.saveDataStore();
+        this.renderTable();
+        return;
+      }
       if (this.selectedRowIdx !== null) {
         e.preventDefault();
         this.deleteRow(this.selectedRowIdx);
@@ -1443,6 +1592,17 @@ class PTApp {
         this.saveDataStore();
         this.renderTable();
         return;
+      }
+    }
+
+    // Direct typing to start edit if a cell is focused
+    if (this.activeCell && e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      const { rowIdx, colKey } = this.activeCell;
+      if (colKey !== "gender") {
+        const cellEl = document.querySelector(`.excel-cell[data-row="${rowIdx}"][data-col="${colKey}"]`);
+        if (cellEl && !cellEl.querySelector("input")) {
+          this.startInlineEdit(rowIdx, colKey, cellEl);
+        }
       }
     }
 

@@ -674,15 +674,40 @@ body {
 }
 
 /* Excel Multi-cell Range / Header Selection Highlights */
+.sheet-container.is-selecting {
+  user-select: none !important;
+  -webkit-user-select: none !important;
+}
+
 .excel-cell.col-selected,
 .excel-cell.row-selected,
-.excel-cell.all-selected {
-  background-color: #eaf5ed !important;
+.excel-cell.all-selected,
+.excel-cell.range-selected {
+  background-color: #e3f2e6 !important;
+}
+
+.excel-cell.range-selected {
+  background-color: rgba(16, 124, 65, 0.15) !important;
 }
 
 .excel-cell.col-selected:hover,
-.excel-cell.row-selected:hover {
-  background-color: #d8eedd !important;
+.excel-cell.row-selected:hover,
+.excel-cell.range-selected:hover {
+  background-color: #d2edd9 !important;
+}
+
+/* Range Boundaries (Outer borders of selection box like Excel) */
+.excel-cell.range-border-top {
+  border-top: 2px solid var(--excel-green) !important;
+}
+.excel-cell.range-border-bottom {
+  border-bottom: 2px solid var(--excel-green) !important;
+}
+.excel-cell.range-border-left {
+  border-left: 2px solid var(--excel-green) !important;
+}
+.excel-cell.range-border-right {
+  border-right: 2px solid var(--excel-green) !important;
 }
 
 /* Alignment per column type */
