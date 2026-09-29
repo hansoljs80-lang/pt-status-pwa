@@ -1285,3 +1285,57 @@ body {
     display: none;
   }
 }
+
+/* Supabase Modal Styles */
+.supabase-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 8px;
+}
+
+.supabase-form .form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.supabase-form label {
+  font-size: 11px;
+  font-weight: 600;
+  color: #333;
+}
+
+.sb-input {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid #d0d7de;
+  border-radius: 4px;
+  font-size: 12px;
+  box-sizing: border-box;
+}
+
+.sb-input:focus {
+  outline: none;
+  border-color: var(--excel-green);
+  box-shadow: 0 0 0 2px rgba(16, 124, 65, 0.15);
+}
+
+.supabase-form .form-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.btn-action.cloud-btn {
+  background: rgba(255, 255, 255, 0.2);
+  border-color: rgba(255, 255, 255, 0.4);
+}
+
+.btn-action.cloud-btn.connected {
+  background: #ffffff;
+  color: #0c5b30;
+  border-color: #ffffff;
+  font-weight: bold;
+}
+

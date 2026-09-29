@@ -32,8 +32,10 @@ const INITIAL_SAMPLE_DATA = {
 };
 
 const STORAGE_KEY = "PT_APP_DATA_STORAGE_V1";
+const SUPABASE_CONFIG_KEY = "PT_SUPABASE_CONFIG_V1";
 const DEFAULT_WRITER = "S";
 const BASE_ROW_NUMBER = 1; // 행 번호 1부터 시작
+const DEFAULT_ROW_COUNT = 150; // 기본 하루 150개 행
 
 class PTApp {
   constructor() {
@@ -43,10 +45,13 @@ class PTApp {
     this.selectedRowIdx = null;
     this.selectedColKey = null;
     this.sortState = { colKey: null, direction: "asc" };
+    this.supabaseClient = null;
+    this.supabaseSyncTimer = null;
 
     this.cacheElements();
     this.bindEvents();
     this.initColumnResizing();
+    this.initSupabase();
     this.initPWA();
 
     // Start with today's date and auto-focus
@@ -83,6 +88,7 @@ class PTApp {
       this.showSaveIndicator("저장 완료됨");
       this.updateSidebarStats();
       this.renderRecentDays();
+      this.scheduleSupabaseSync();
     } catch (e) {
       console.error("Save error", e);
       this.showSaveIndicator("저장 실패", true);
@@ -166,9 +172,43 @@ class PTApp {
     this.elBtnDownloadBackup = document.getElementById("btnDownloadBackup");
     this.elFileRestore = document.getElementById("fileRestore");
     this.elBtnClearAllData = document.getElementById("btnClearAllData");
+
+    // Supabase Modal & Cloud Elements
+    this.elBtnSupabase = document.getElementById("btnSupabase");
+    this.elSupabaseStatusLabel = document.getElementById("supabaseStatusLabel");
+    this.elSupabaseModal = document.getElementById("supabaseModal");
+    this.elSupabaseModalStatus = document.getElementById("supabaseModalStatus");
+    this.elBtnCloseSupabase = document.getElementById("btnCloseSupabase");
+    this.elSbUrlInput = document.getElementById("sbUrlInput");
+    this.elSbKeyInput = document.getElementById("sbKeyInput");
+    this.elBtnSaveSupabase = document.getElementById("btnSaveSupabase");
+    this.elBtnDisconnectSupabase = document.getElementById("btnDisconnectSupabase");
+    this.elSupabaseManualSyncBox = document.getElementById("supabaseManualSyncBox");
+    this.elBtnPushToCloud = document.getElementById("btnPushToCloud");
+    this.elBtnPullFromCloud = document.getElementById("btnPullFromCloud");
   }
 
   bindEvents() {
+    // Supabase Cloud Sync Modal
+    if (this.elBtnSupabase) {
+      this.elBtnSupabase.addEventListener("click", () => this.openSupabaseModal());
+    }
+    if (this.elBtnCloseSupabase) {
+      this.elBtnCloseSupabase.addEventListener("click", () => this.closeSupabaseModal());
+    }
+    if (this.elBtnSaveSupabase) {
+      this.elBtnSaveSupabase.addEventListener("click", () => this.saveSupabaseConfig());
+    }
+    if (this.elBtnDisconnectSupabase) {
+      this.elBtnDisconnectSupabase.addEventListener("click", () => this.disconnectSupabase());
+    }
+    if (this.elBtnPushToCloud) {
+      this.elBtnPushToCloud.addEventListener("click", () => this.pushToCloud(this.currentDate, true));
+    }
+    if (this.elBtnPullFromCloud) {
+      this.elBtnPullFromCloud.addEventListener("click", () => this.pullFromCloud(this.currentDate, true));
+    }
+
     // Column Headers Click (Select Entire Column)
     document.querySelectorAll(".col-headers-row th.col-letter").forEach((th) => {
       th.addEventListener("click", (e) => {
@@ -266,20 +306,41 @@ class PTApp {
       if (e.key === "Escape") {
         this.closePreviewModal();
         this.closeBackupModal();
+        this.closeSupabaseModal();
       }
     });
   }
 
-  // Get or initialize rows for a given date
+  // Get or initialize rows for a given date (guarantee minimum DEFAULT_ROW_COUNT = 150 rows)
   getCurrentRows() {
     if (!this.dataStore[this.currentDate]) {
-      // Create empty rows for today/selected date
-      this.dataStore[this.currentDate] = this.createDefaultEmptyRows();
+      this.dataStore[this.currentDate] = this.createDefaultEmptyRows(DEFAULT_ROW_COUNT);
+    } else {
+      const rows = this.dataStore[this.currentDate];
+      if (rows.length < DEFAULT_ROW_COUNT) {
+        const formattedDate = this.currentDate.replace(/-/g, ".");
+        const diff = DEFAULT_ROW_COUNT - rows.length;
+        for (let i = 0; i < diff; i++) {
+          rows.push({
+            no: "",
+            gender: "",
+            chartNo: "",
+            name: "",
+            part: "",
+            prescription: "",
+            extra: "",
+            writer: DEFAULT_WRITER,
+            memo: "",
+            specialNote: "",
+            date: formattedDate
+          });
+        }
+      }
     }
     return this.dataStore[this.currentDate];
   }
 
-  createDefaultEmptyRows(count = 10) {
+  createDefaultEmptyRows(count = DEFAULT_ROW_COUNT) {
     const formattedDate = this.currentDate.replace(/-/g, ".");
     const rows = [];
     for (let i = 1; i <= count; i++) {
@@ -318,6 +379,11 @@ class PTApp {
     this.renderTable();
     this.updateSidebarStats();
     this.renderRecentDays();
+
+    // Pull from Supabase cloud if connected
+    if (this.supabaseClient) {
+      this.pullFromCloud(dateStr, false);
+    }
 
     if (autoFocusFirstEmpty) {
       setTimeout(() => this.focusFirstEmptyCell(), 80);
@@ -870,14 +936,26 @@ class PTApp {
   removeEmptyRows() {
     const rows = this.getCurrentRows();
     const filtered = rows.filter((r) => r.name || r.chartNo || r.part || r.prescription || r.extra);
-    if (filtered.length === 0) {
-      this.dataStore[this.currentDate] = this.createDefaultEmptyRows(5);
-    } else {
-      this.dataStore[this.currentDate] = filtered;
+    const formattedDate = this.currentDate.replace(/-/g, ".");
+    while (filtered.length < DEFAULT_ROW_COUNT) {
+      filtered.push({
+        no: "",
+        gender: "",
+        chartNo: "",
+        name: "",
+        part: "",
+        prescription: "",
+        extra: "",
+        writer: DEFAULT_WRITER,
+        memo: "",
+        specialNote: "",
+        date: formattedDate
+      });
     }
+    this.dataStore[this.currentDate] = filtered;
     this.saveDataStore();
     this.renderTable();
-    alert("빈 행이 깔끔하게 정리되었습니다.");
+    alert("데이터가 정리되었으며 기본 150행이 유지됩니다.");
   }
 
   applyQuickChip(type, val) {
@@ -1133,10 +1211,192 @@ class PTApp {
 
   clearCurrentDayData() {
     if (confirm(`정말로 ${this.currentDate} 날짜의 데이터를 모두 초기화하시겠습니까?`)) {
-      this.dataStore[this.currentDate] = this.createDefaultEmptyRows(10);
+      this.dataStore[this.currentDate] = this.createDefaultEmptyRows(DEFAULT_ROW_COUNT);
       this.saveDataStore();
       this.renderTable();
       this.closeBackupModal();
+    }
+  }
+
+  // --- Supabase Cloud Sync Methods ---
+  initSupabase() {
+    try {
+      const saved = localStorage.getItem(SUPABASE_CONFIG_KEY);
+      if (saved) {
+        const { url, key } = JSON.parse(saved);
+        if (url && key && window.supabase) {
+          this.supabaseClient = window.supabase.createClient(url, key);
+          this.updateSupabaseUI(true);
+          // Pull latest cloud data for today
+          this.pullFromCloud(this.currentDate, false);
+          return;
+        }
+      }
+    } catch (e) {
+      console.error("Supabase init error:", e);
+    }
+    this.updateSupabaseUI(false);
+  }
+
+  updateSupabaseUI(connected) {
+    if (this.elSupabaseStatusLabel) {
+      this.elSupabaseStatusLabel.textContent = connected ? "☁️ 클라우드 연결됨" : "슈파베이스 연동";
+    }
+    if (this.elBtnSupabase) {
+      this.elBtnSupabase.classList.toggle("connected", connected);
+    }
+    if (this.elSupabaseModalStatus) {
+      this.elSupabaseModalStatus.textContent = connected ? "연결됨 (실시간 동기화 중)" : "미연결";
+      this.elSupabaseModalStatus.style.background = connected ? "#e2efda" : "#f1f3f5";
+      this.elSupabaseModalStatus.style.color = connected ? "#274e13" : "#666";
+    }
+    if (this.elBtnDisconnectSupabase) {
+      this.elBtnDisconnectSupabase.style.display = connected ? "inline-block" : "none";
+    }
+    if (this.elSupabaseManualSyncBox) {
+      this.elSupabaseManualSyncBox.style.display = connected ? "block" : "none";
+    }
+  }
+
+  openSupabaseModal() {
+    try {
+      const saved = localStorage.getItem(SUPABASE_CONFIG_KEY);
+      if (saved) {
+        const { url, key } = JSON.parse(saved);
+        if (this.elSbUrlInput) this.elSbUrlInput.value = url || "";
+        if (this.elSbKeyInput) this.elSbKeyInput.value = key || "";
+      }
+    } catch (e) {}
+    if (this.elSupabaseModal) this.elSupabaseModal.style.display = "flex";
+  }
+
+  closeSupabaseModal() {
+    if (this.elSupabaseModal) this.elSupabaseModal.style.display = "none";
+  }
+
+  async saveSupabaseConfig() {
+    const url = (this.elSbUrlInput.value || "").trim();
+    const key = (this.elSbKeyInput.value || "").trim();
+
+    if (!url || !key) {
+      alert("Supabase Project URL과 Anon Key를 모두 입력해주세요.");
+      return;
+    }
+
+    if (!window.supabase) {
+      alert("Supabase SDK를 로드할 수 없습니다. 인터넷 연결을 확인해주세요.");
+      return;
+    }
+
+    try {
+      const testClient = window.supabase.createClient(url, key);
+      // Test query to check table
+      const { error } = await testClient.from("pt_daily_records").select("date").limit(1);
+      if (error && (error.code === "PGRST204" || (error.message && error.message.includes("relation") && error.message.includes("does not exist")))) {
+        alert("Supabase 연결은 확인되었으나, 'pt_daily_records' 테이블이 없습니다.\n하단의 SQL 스크립트를 Supabase SQL Editor에서 실행해주세요!");
+      }
+
+      localStorage.setItem(SUPABASE_CONFIG_KEY, JSON.stringify({ url, key }));
+      this.supabaseClient = testClient;
+      this.updateSupabaseUI(true);
+      alert("Supabase 클라우드 동기화가 성공적으로 활성화되었습니다!\n지금부터 모든 기록이 자동 동기화됩니다.");
+      this.closeSupabaseModal();
+
+      // Push current local data to cloud
+      this.pushToCloud(this.currentDate, false);
+    } catch (err) {
+      console.error("Supabase connect error:", err);
+      alert("연결 중 오류가 발생했습니다: " + (err.message || err));
+    }
+  }
+
+  disconnectSupabase() {
+    if (confirm("Supabase 클라우드 연결을 해제하시겠습니까? (로컬 데이터는 안전하게 유지됩니다)")) {
+      localStorage.removeItem(SUPABASE_CONFIG_KEY);
+      this.supabaseClient = null;
+      this.updateSupabaseUI(false);
+      if (this.elSbUrlInput) this.elSbUrlInput.value = "";
+      if (this.elSbKeyInput) this.elSbKeyInput.value = "";
+      this.closeSupabaseModal();
+      alert("연결이 해제되었습니다.");
+    }
+  }
+
+  scheduleSupabaseSync() {
+    if (!this.supabaseClient) return;
+    if (this.supabaseSyncTimer) clearTimeout(this.supabaseSyncTimer);
+    this.supabaseSyncTimer = setTimeout(() => {
+      this.pushToCloud(this.currentDate, false);
+    }, 1200);
+  }
+
+  async pushToCloud(dateStr, showNotice = false) {
+    if (!this.supabaseClient) {
+      if (showNotice) alert("Supabase가 연결되어 있지 않습니다. 상단 [슈파베이스 연동]을 눌러 설정해주세요.");
+      return;
+    }
+
+    try {
+      const rows = this.dataStore[dateStr] || this.getCurrentRows();
+      const meaningfulCount = rows.filter((r) => r.name || r.chartNo).length;
+
+      const { error } = await this.supabaseClient.from("pt_daily_records").upsert({
+        date: dateStr,
+        rows_data: rows,
+        total_count: meaningfulCount,
+        updated_at: new Date().toISOString()
+      });
+
+      if (error) {
+        console.warn("Cloud push warning:", error);
+        if (showNotice) alert("클라우드 업로드 실패: " + error.message);
+      } else {
+        this.showSaveIndicator("클라우드 동기화 완료");
+        if (showNotice) alert(`${dateStr} 데이터가 Supabase 클라우드에 성공적으로 저장되었습니다!`);
+      }
+    } catch (err) {
+      console.error("Cloud push exception:", err);
+      if (showNotice) alert("클라우드 통신 오류: " + err.message);
+    }
+  }
+
+  async pullFromCloud(dateStr, showNotice = false) {
+    if (!this.supabaseClient) {
+      if (showNotice) alert("Supabase가 연결되어 있지 않습니다.");
+      return;
+    }
+
+    try {
+      const { data, error } = await this.supabaseClient
+        .from("pt_daily_records")
+        .select("rows_data, updated_at")
+        .eq("date", dateStr)
+        .maybeSingle();
+
+      if (error) {
+        console.warn("Cloud pull warning:", error);
+        if (showNotice) alert("클라우드 데이터 가져오기 실패: " + error.message);
+        return;
+      }
+
+      if (data && Array.isArray(data.rows_data) && data.rows_data.length > 0) {
+        this.dataStore[dateStr] = data.rows_data;
+        // Ensure minimum 150 rows
+        this.getCurrentRows();
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(this.dataStore));
+        if (this.currentDate === dateStr) {
+          this.renderTable();
+          this.updateSidebarStats();
+          this.renderRecentDays();
+        }
+        this.showSaveIndicator("클라우드 데이터 수신됨");
+        if (showNotice) alert(`${dateStr} 클라우드 최신 데이터를 성공적으로 불러왔습니다!`);
+      } else {
+        if (showNotice) alert(`${dateStr} 일자의 클라우드 데이터가 아직 없습니다.`);
+      }
+    } catch (err) {
+      console.error("Cloud pull exception:", err);
+      if (showNotice) alert("클라우드 통신 오류: " + err.message);
     }
   }
 

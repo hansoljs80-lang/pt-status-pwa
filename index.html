@@ -15,6 +15,8 @@
   <link rel="icon" type="image/svg+xml" href="icon.svg">
   
   <link rel="stylesheet" href="style.css">
+  <!-- Supabase JS Client CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 <body>
   <div class="excel-app">
@@ -39,6 +41,9 @@
         </div>
       </div>
       <div class="title-right">
+        <button type="button" class="btn-action cloud-btn" id="btnSupabase" title="Supabase 클라우드 동기화 설정">
+          <span class="btn-icon">☁️</span> <span id="supabaseStatusLabel">슈파베이스 연동</span>
+        </button>
         <button type="button" class="btn-action preview-btn" id="btnPreview" title="인쇄 및 보고서 미리보기">
           <span class="btn-icon">👁️</span> 미리보기 / 인쇄
         </button>
@@ -297,6 +302,58 @@
         <div class="danger-zone">
           <h4>주의 영역</h4>
           <button type="button" class="btn-action danger" id="btnClearAllData">오늘 데이터 전체 비우기</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Supabase Cloud Sync Modal -->
+  <div class="modal-overlay" id="supabaseModal" style="display:none;">
+    <div class="modal-card">
+      <div class="modal-header">
+        <div class="modal-title-wrap">
+          <h2>☁️ Supabase 클라우드 실시간 동기화</h2>
+          <span class="preview-date-badge" id="supabaseModalStatus">미연결</span>
+        </div>
+        <button type="button" class="btn-close-modal" id="btnCloseSupabase">✕</button>
+      </div>
+      <div class="modal-body">
+        <p class="guide-text">Supabase 프로젝트를 연결하면 모든 기기(스마트폰, 태블릿, PC)에서 물리치료 기록이 실시간으로 자동 동기화 및 영구 보존됩니다.</p>
+        
+        <div class="supabase-form">
+          <div class="form-group">
+            <label for="sbUrlInput">Project URL:</label>
+            <input type="text" id="sbUrlInput" class="sb-input" placeholder="https://your-project.supabase.co">
+          </div>
+          <div class="form-group">
+            <label for="sbKeyInput">Anon / Public API Key:</label>
+            <input type="password" id="sbKeyInput" class="sb-input" placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...">
+          </div>
+          <div class="form-actions">
+            <button type="button" class="btn-action primary" id="btnSaveSupabase">연결 및 자동 동기화 활성화</button>
+            <button type="button" class="btn-action" id="btnDisconnectSupabase" style="display:none;">연결 해제</button>
+          </div>
+        </div>
+
+        <div class="sync-actions-box" id="supabaseManualSyncBox" style="display:none; margin-top: 16px; padding-top: 12px; border-top: 1px solid #eee;">
+          <h4>수동 데이터 동기화</h4>
+          <div style="display: flex; gap: 8px; margin-top: 8px;">
+            <button type="button" class="btn-action" id="btnPushToCloud">☁️ 로컬 ➔ 클라우드 즉시 업로드</button>
+            <button type="button" class="btn-action" id="btnPullFromCloud">📥 클라우드 ➔ 로컬 가져오기</button>
+          </div>
+        </div>
+
+        <div class="sql-guide-box" style="margin-top: 18px; background: #f8f9fa; border: 1px solid #e1e4e8; border-radius: 6px; padding: 12px;">
+          <h4 style="font-size: 12px; margin-bottom: 6px; color: #333;">💡 테이블이 아직 없으신가요?</h4>
+          <p style="font-size: 11px; color: #666; margin-bottom: 8px;">Supabase SQL Editor에 아래 스키마를 한 번 실행해 주세요. (프로젝트 내 <code>supabase_schema.sql</code> 참조)</p>
+          <pre style="background: #24292e; color: #f6f8fa; padding: 8px; border-radius: 4px; font-size: 11px; overflow-x: auto;">CREATE TABLE IF NOT EXISTS pt_daily_records (
+    date TEXT PRIMARY KEY,
+    rows_data JSONB NOT NULL DEFAULT '[]'::jsonb,
+    total_count INTEGER DEFAULT 0,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+ALTER TABLE pt_daily_records ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Allow public all" ON pt_daily_records FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);</pre>
         </div>
       </div>
     </div>
