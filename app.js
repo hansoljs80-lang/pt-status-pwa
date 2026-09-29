@@ -41,9 +41,12 @@ class PTApp {
     this.currentDate = this.getTodayString();
     this.activeCell = null; // { rowIdx, colKey }
     this.selectedRowIdx = null;
+    this.selectedColKey = null;
+    this.sortState = { colKey: null, direction: "asc" };
 
     this.cacheElements();
     this.bindEvents();
+    this.initColumnResizing();
     this.initPWA();
 
     // Start with today's date and auto-focus
@@ -166,6 +169,30 @@ class PTApp {
   }
 
   bindEvents() {
+    // Column Headers Click (Select Entire Column)
+    document.querySelectorAll(".col-headers-row th.col-letter").forEach((th) => {
+      th.addEventListener("click", (e) => {
+        if (e.target.classList.contains("col-resizer")) return;
+        const colKey = th.dataset.col;
+        const colLetter = th.dataset.colLetter;
+        if (colKey) this.selectEntireColumn(colKey, colLetter);
+      });
+    });
+
+    // Business Headers Click (Sort Column)
+    document.querySelectorAll(".business-headers-row th.b-header").forEach((th) => {
+      th.addEventListener("click", () => {
+        const colKey = th.dataset.col;
+        if (colKey && colKey !== "del") this.sortByColumn(colKey);
+      });
+    });
+
+    // Corner Header Click (Select All Sheet)
+    const cornerHeader = document.getElementById("cornerHeader");
+    if (cornerHeader) {
+      cornerHeader.addEventListener("click", () => this.selectAllCells());
+    }
+
     // Date Navigation
     this.elDatePicker.addEventListener("change", (e) => {
       if (e.target.value) this.setDate(e.target.value);
@@ -325,7 +352,10 @@ class PTApp {
       const thNum = document.createElement("th");
       thNum.className = "row-num";
       thNum.textContent = excelRowNum;
-      thNum.title = `행 번호: ${excelRowNum}`;
+      thNum.title = `행 ${excelRowNum} 클릭하여 행 전체 선택`;
+      thNum.addEventListener("click", () => {
+        this.selectEntireRow(rowIdx);
+      });
       tr.appendChild(thNum);
 
       // Columns
@@ -386,6 +416,7 @@ class PTApp {
       const targetCell = document.querySelector(`.excel-cell[data-row="${this.activeCell.rowIdx}"][data-col="${this.activeCell.colKey}"]`);
       if (targetCell) {
         this.highlightCell(targetCell);
+        this.updateActiveHeaders(this.activeCell.rowIdx, this.activeCell.colKey);
       }
     }
   }
@@ -394,6 +425,9 @@ class PTApp {
   selectCell(rowIdx, colKey, cellElement) {
     this.activeCell = { rowIdx, colKey };
     this.selectedRowIdx = rowIdx;
+
+    this.clearHeaderSelections();
+    this.updateActiveHeaders(rowIdx, colKey);
 
     // Highlight row
     document.querySelectorAll(".excel-row").forEach((r) => r.classList.remove("active-row"));
@@ -557,6 +591,168 @@ class PTApp {
       <option value="견인"></option>
     `;
     document.body.appendChild(datalistExtra);
+  }
+
+  // Update active highlighted headers matching currently focused cell
+  updateActiveHeaders(rowIdx, colKey) {
+    document.querySelectorAll(".col-letter, .b-header, .row-num").forEach((el) => {
+      el.classList.remove("header-active");
+    });
+
+    const activeColLetter = document.querySelector(`.col-letter[data-col="${colKey}"]`);
+    const activeBHeader = document.querySelector(`.b-header[data-col="${colKey}"]`);
+    if (activeColLetter) activeColLetter.classList.add("header-active");
+    if (activeBHeader) activeBHeader.classList.add("header-active");
+
+    const rowTr = document.querySelector(`tr[data-row-idx="${rowIdx}"]`);
+    if (rowTr) {
+      const activeRowNum = rowTr.querySelector(".row-num");
+      if (activeRowNum) activeRowNum.classList.add("header-active");
+    }
+  }
+
+  clearHeaderSelections() {
+    document.querySelectorAll(".col-letter, .b-header, .row-num, .corner-header").forEach((el) => {
+      el.classList.remove("selected");
+    });
+    document.querySelectorAll(".excel-cell").forEach((el) => {
+      el.classList.remove("col-selected", "row-selected", "all-selected");
+    });
+  }
+
+  selectEntireColumn(colKey, colLetter) {
+    this.clearHeaderSelections();
+    this.selectedColKey = colKey;
+    this.selectedRowIdx = null;
+
+    // Highlight Column Header
+    const colTh = document.querySelector(`.col-letter[data-col="${colKey}"]`);
+    const bTh = document.querySelector(`.b-header[data-col="${colKey}"]`);
+    if (colTh) colTh.classList.add("selected");
+    if (bTh) bTh.classList.add("selected");
+
+    // Select all cells in this column
+    document.querySelectorAll(`.excel-cell[data-col="${colKey}"]`).forEach((cell) => {
+      cell.classList.add("col-selected");
+    });
+
+    this.elCellAddress.textContent = `${colLetter}:${colLetter}`;
+    this.elSelectedCellCoords.textContent = `${colLetter}열 전체 선택 (${colKey})`;
+    this.elFormulaInput.value = "";
+  }
+
+  selectEntireRow(rowIdx) {
+    this.clearHeaderSelections();
+    this.selectedRowIdx = rowIdx;
+    this.selectedColKey = null;
+
+    const rowTr = document.querySelector(`tr[data-row-idx="${rowIdx}"]`);
+    if (rowTr) {
+      const rowNumTh = rowTr.querySelector(".row-num");
+      if (rowNumTh) rowNumTh.classList.add("selected");
+      rowTr.querySelectorAll(".excel-cell").forEach((cell) => {
+        cell.classList.add("row-selected");
+      });
+    }
+
+    const excelRowNum = BASE_ROW_NUMBER + rowIdx;
+    this.elCellAddress.textContent = `${excelRowNum}:${excelRowNum}`;
+    this.elSelectedCellCoords.textContent = `${excelRowNum}행 전체 선택`;
+    this.elFormulaInput.value = "";
+  }
+
+  selectAllCells() {
+    this.clearHeaderSelections();
+    const cornerHeader = document.getElementById("cornerHeader");
+    if (cornerHeader) cornerHeader.classList.add("selected");
+
+    document.querySelectorAll(".excel-cell").forEach((cell) => {
+      cell.classList.add("all-selected");
+    });
+
+    this.elCellAddress.textContent = "1:전체";
+    this.elSelectedCellCoords.textContent = "전체 시트 선택";
+    this.elFormulaInput.value = "";
+  }
+
+  sortByColumn(colKey) {
+    const rows = this.getCurrentRows();
+    if (this.sortState.colKey === colKey) {
+      this.sortState.direction = this.sortState.direction === "asc" ? "desc" : "asc";
+    } else {
+      this.sortState.colKey = colKey;
+      this.sortState.direction = "asc";
+    }
+
+    const dir = this.sortState.direction;
+
+    // Update sort indicators in header
+    document.querySelectorAll(".b-header .sort-indicator").forEach((ind) => {
+      ind.textContent = "";
+    });
+    const currentTh = document.querySelector(`.b-header[data-col="${colKey}"] .sort-indicator`);
+    if (currentTh) {
+      currentTh.textContent = dir === "asc" ? " ▲" : " ▼";
+    }
+
+    // Separate rows with data and blank rows so blank rows always stay at bottom
+    const dataRows = rows.filter((r) => r.name || r.chartNo || r.part || r.no);
+    const emptyRows = rows.filter((r) => !r.name && !r.chartNo && !r.part && !r.no);
+
+    dataRows.sort((a, b) => {
+      let valA = (a[colKey] || "").toString().trim();
+      let valB = (b[colKey] || "").toString().trim();
+
+      // Check if numeric
+      const numA = parseFloat(valA);
+      const numB = parseFloat(valB);
+      if (!isNaN(numA) && !isNaN(numB) && String(numA) === valA && String(numB) === valB) {
+        return dir === "asc" ? numA - numB : numB - numA;
+      }
+
+      return dir === "asc" ? valA.localeCompare(valB, "ko") : valB.localeCompare(valA, "ko");
+    });
+
+    this.dataStore[this.currentDate] = [...dataRows, ...emptyRows];
+    this.saveDataStore();
+    this.renderTable();
+  }
+
+  initColumnResizing() {
+    let activeTh = null;
+    let startX = 0;
+    let startWidth = 0;
+
+    document.addEventListener("mousedown", (e) => {
+      if (e.target.classList.contains("col-resizer")) {
+        e.preventDefault();
+        e.stopPropagation();
+        const resizer = e.target;
+        activeTh = resizer.closest("th");
+        startX = e.pageX;
+        startWidth = activeTh.offsetWidth;
+        resizer.classList.add("resizing");
+        document.body.style.cursor = "col-resize";
+        document.body.style.userSelect = "none";
+      }
+    });
+
+    document.addEventListener("mousemove", (e) => {
+      if (!activeTh) return;
+      const diff = e.pageX - startX;
+      const newWidth = Math.max(35, startWidth + diff);
+      activeTh.style.width = `${newWidth}px`;
+    });
+
+    document.addEventListener("mouseup", () => {
+      if (activeTh) {
+        const resizer = activeTh.querySelector(".col-resizer");
+        if (resizer) resizer.classList.remove("resizing");
+        activeTh = null;
+        document.body.style.cursor = "";
+        document.body.style.userSelect = "";
+      }
+    });
   }
 
   navigateCell(targetRowIdx, colKey) {
@@ -965,9 +1161,38 @@ class PTApp {
     if (e.altKey && e.key === "ArrowLeft") {
       e.preventDefault();
       this.shiftDay(-1);
+      return;
     } else if (e.altKey && e.key === "ArrowRight") {
       e.preventDefault();
       this.shiftDay(1);
+      return;
+    }
+
+    // Delete or Backspace when row/col is selected
+    if (e.key === "Delete" || e.key === "Backspace") {
+      if (this.selectedRowIdx !== null) {
+        e.preventDefault();
+        this.deleteRow(this.selectedRowIdx);
+        this.selectedRowIdx = null;
+        return;
+      }
+      if (this.selectedColKey !== null) {
+        e.preventDefault();
+        const rows = this.getCurrentRows();
+        rows.forEach((r) => { r[this.selectedColKey] = ""; });
+        this.saveDataStore();
+        this.renderTable();
+        return;
+      }
+    }
+
+    // Escape -> Clear selections
+    if (e.key === "Escape") {
+      this.clearHeaderSelections();
+      document.querySelectorAll(".cell-focused").forEach((c) => c.classList.remove("cell-focused"));
+      this.activeCell = null;
+      this.selectedRowIdx = null;
+      this.selectedColKey = null;
     }
   }
 

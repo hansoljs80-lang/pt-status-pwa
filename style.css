@@ -493,12 +493,51 @@ body {
   border-bottom: 1px solid #c8cbcf;
   font-weight: normal;
   text-align: center;
-  height: 20px;
+  height: 22px;
   font-size: 11px;
   user-select: none;
   position: sticky;
   top: 0;
   z-index: 10;
+  cursor: pointer;
+  transition: background-color 0.1s;
+}
+
+.col-headers-row th.col-letter:hover {
+  background-color: #e2e8e3;
+  color: var(--excel-green-dark);
+  font-weight: bold;
+}
+
+/* Active Column Header (when cell in this column is focused) */
+.col-headers-row th.col-letter.header-active {
+  background-color: #d7e8da !important;
+  color: var(--excel-green-dark) !important;
+  font-weight: 700 !important;
+  border-bottom: 2px solid var(--excel-green) !important;
+}
+
+/* Selected Column Header (when whole column is selected) */
+.col-headers-row th.col-letter.selected {
+  background-color: #107C41 !important;
+  color: #ffffff !important;
+  font-weight: bold !important;
+}
+
+/* Column Resize Handle */
+.col-resizer {
+  position: absolute;
+  top: 0;
+  right: -2px;
+  width: 6px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 15;
+  user-select: none;
+}
+
+.col-resizer:hover, .col-resizer.resizing {
+  background-color: var(--excel-green);
 }
 
 .corner-header {
@@ -508,6 +547,18 @@ body {
   border-right: 1px solid #c8cbcf !important;
   left: 0;
   z-index: 12 !important;
+  cursor: pointer;
+  transition: background-color 0.15s;
+}
+
+.corner-header:hover {
+  background: #d8dee4 !important;
+  color: var(--excel-green-dark);
+}
+
+.corner-header.selected {
+  background: var(--excel-green) !important;
+  color: #ffffff !important;
 }
 
 /* Business Header Row (Green Theme matching user's Excel) */
@@ -522,9 +573,32 @@ body {
   font-size: 12px;
   user-select: none;
   position: sticky;
-  top: 20px;
+  top: 22px;
   z-index: 10;
   white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 0.15s;
+}
+
+.business-headers-row th.b-header:hover {
+  background: #cfe2c7;
+  color: #15370a;
+}
+
+.business-headers-row th.b-header.header-active {
+  background: #c3deb9 !important;
+  color: #0d2806 !important;
+}
+
+.business-headers-row th.b-header.selected {
+  background: #2a6f3b !important;
+  color: #ffffff !important;
+}
+
+.sort-indicator {
+  font-size: 10px;
+  margin-left: 3px;
+  color: var(--excel-green-dark);
 }
 
 .row-num-header {
@@ -532,6 +606,7 @@ body {
   left: 0;
   z-index: 12 !important;
   border-right: 1.5px solid #b3cbb0 !important;
+  cursor: default;
 }
 
 /* Body Rows */
@@ -560,6 +635,29 @@ body {
   left: 0;
   z-index: 5;
   font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.1s, color 0.1s;
+}
+
+.row-num:hover {
+  background-color: #e2e8e3;
+  color: var(--excel-green-dark);
+  font-weight: bold;
+}
+
+/* Active Row Header (when cell in this row is focused) */
+.row-num.header-active {
+  background-color: #d7e8da !important;
+  color: var(--excel-green-dark) !important;
+  font-weight: bold !important;
+  border-right: 2px solid var(--excel-green) !important;
+}
+
+/* Selected Row Header (when whole row is clicked) */
+.row-num.selected {
+  background-color: #107C41 !important;
+  color: #ffffff !important;
+  font-weight: bold !important;
 }
 
 .excel-cell {
@@ -573,6 +671,18 @@ body {
   cursor: cell;
   position: relative;
   background-clip: padding-box;
+}
+
+/* Excel Multi-cell Range / Header Selection Highlights */
+.excel-cell.col-selected,
+.excel-cell.row-selected,
+.excel-cell.all-selected {
+  background-color: #eaf5ed !important;
+}
+
+.excel-cell.col-selected:hover,
+.excel-cell.row-selected:hover {
+  background-color: #d8eedd !important;
 }
 
 /* Alignment per column type */
