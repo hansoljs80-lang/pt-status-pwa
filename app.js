@@ -33,6 +33,8 @@ const INITIAL_SAMPLE_DATA = {
 
 const STORAGE_KEY = "PT_APP_DATA_STORAGE_V1";
 const SUPABASE_CONFIG_KEY = "PT_SUPABASE_CONFIG_V1";
+const DEFAULT_SUPABASE_URL = "https://uqivbmkeuupsaghwshcw.supabase.co";
+const DEFAULT_SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVxaXZibWtldXVwc2FnaHdzaGN3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njk0ODM3OTUsImV4cCI6MjA4NTA1OTc5NX0.FY86a0vaN_x-KeErBYAVyCpyXKsxloZiy7eysZGSFjk";
 const DEFAULT_WRITER = "S";
 const BASE_ROW_NUMBER = 1; // 행 번호 1부터 시작
 const DEFAULT_ROW_COUNT = 150; // 기본 하루 150개 행
@@ -1351,16 +1353,24 @@ class PTApp {
   // --- Supabase Cloud Sync Methods ---
   initSupabase() {
     try {
+      let url = DEFAULT_SUPABASE_URL;
+      let key = DEFAULT_SUPABASE_KEY;
+
       const saved = localStorage.getItem(SUPABASE_CONFIG_KEY);
       if (saved) {
-        const { url, key } = JSON.parse(saved);
-        if (url && key && window.supabase) {
-          this.supabaseClient = window.supabase.createClient(url, key);
-          this.updateSupabaseUI(true);
-          // Pull latest cloud data for today
-          this.pullFromCloud(this.currentDate, false);
-          return;
+        const parsed = JSON.parse(saved);
+        if (parsed.url && parsed.key) {
+          url = parsed.url;
+          key = parsed.key;
         }
+      }
+
+      if (url && key && window.supabase) {
+        this.supabaseClient = window.supabase.createClient(url, key);
+        this.updateSupabaseUI(true);
+        // Pull latest cloud data for today
+        this.pullFromCloud(this.currentDate, false);
+        return;
       }
     } catch (e) {
       console.error("Supabase init error:", e);
