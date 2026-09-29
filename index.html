@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>물리치료 현황 (Excel PT Daily Log)</title>
+  
+  <!-- PWA Settings -->
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#107C41">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="PT현황">
+  <link rel="apple-touch-icon" href="icon-192.png">
+  <link rel="icon" type="image/svg+xml" href="icon.svg">
+  
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="excel-app">
+    <!-- Top Green Header Ribbon Bar -->
+    <header class="excel-titlebar">
+      <div class="title-left">
+        <span class="excel-badge">X</span>
+        <span class="file-name" id="docTitle">물리치료 - Excel</span>
+        <span class="save-status" id="saveStatus">저장 완료됨</span>
+      </div>
+      <div class="title-center">
+        <!-- Quick Date Switcher -->
+        <div class="date-navigator">
+          <button type="button" class="btn-nav" id="btnPrevDay" title="이전 날짜 (Alt+Left)">◀</button>
+          <div class="date-display-wrap">
+            <span class="cal-icon">📅</span>
+            <input type="date" id="datePicker" class="date-picker-input">
+            <span class="date-label" id="dateDisplayLabel">2026.09.29 (화)</span>
+          </div>
+          <button type="button" class="btn-nav" id="btnNextDay" title="다음 날짜 (Alt+Right)">▶</button>
+          <button type="button" class="btn-today-pill" id="btnGoToday" title="오늘 날짜로 이동">오늘 바로가기</button>
+        </div>
+      </div>
+      <div class="title-right">
+        <button type="button" class="btn-action preview-btn" id="btnPreview" title="인쇄 및 보고서 미리보기">
+          <span class="btn-icon">👁️</span> 미리보기 / 인쇄
+        </button>
+        <button type="button" class="btn-action export-btn" id="btnExportCsv" title="엑셀 CSV 파일 다운로드">
+          <span class="btn-icon">📥</span> 엑셀 저장
+        </button>
+      </div>
+    </header>
+
+    <!-- Excel Ribbon Menu / Tools -->
+    <nav class="excel-ribbon">
+      <div class="ribbon-tabs">
+        <span class="ribbon-tab active">홈</span>
+        <span class="ribbon-tab" id="tabAddRow">+ 새 환자 추가</span>
+        <span class="ribbon-tab" id="tabClearEmpty">빈 줄 정리</span>
+        <span class="ribbon-tab" id="tabBackup">데이터 백업/복구</span>
+      </div>
+      <div class="ribbon-toolbar">
+        <div class="tool-group">
+          <button type="button" class="tool-btn primary" id="btnAddRow">
+            <span class="tool-icon">➕</span>
+            <span class="tool-text">행 추가 (Enter)</span>
+          </button>
+          <button type="button" class="tool-btn danger" id="btnDeleteSelected">
+            <span class="tool-icon">🗑️</span>
+            <span class="tool-text">선택 행 삭제</span>
+          </button>
+        </div>
+
+        <div class="tool-divider"></div>
+
+        <!-- Quick Presets -->
+        <div class="tool-group quick-inputs">
+          <span class="tool-group-label">빠른 입력 도구:</span>
+          <div class="quick-chips">
+            <button type="button" class="chip" data-type="prescription" data-val="사지 ( HP / Laser / ICT )">사지 (HP/Laser/ICT)</button>
+            <button type="button" class="chip" data-type="prescription" data-val="척추 ( HP / 자기장 / ICT )">척추 (HP/자기장/ICT)</button>
+            <button type="button" class="chip" data-type="prescription" data-val="학생 ( HP / Laser )">학생 (HP/Laser)</button>
+            <button type="button" class="chip" data-type="prescription" data-val="항냉 ( ICE / Laser )">항냉 (ICE/Laser)</button>
+            <span class="chip-sep">|</span>
+            <button type="button" class="chip highlight" data-type="extra" data-val="충격파">충격파</button>
+            <button type="button" class="chip highlight" data-type="extra" data-val="이온">이온</button>
+            <button type="button" class="chip highlight" data-type="extra" data-val="윈백">윈백</button>
+          </div>
+        </div>
+
+        <div class="tool-divider"></div>
+
+        <div class="tool-group search-group">
+          <input type="text" id="searchInput" placeholder="환자명/차트/부위 검색..." class="search-box">
+          <button type="button" id="btnClearSearch" class="btn-clear-search" style="display:none;">✕</button>
+        </div>
+      </div>
+    </nav>
+
+    <!-- Formula Bar (엑셀 수식 입력줄) -->
+    <div class="formula-bar">
+      <div class="cell-address-box" id="cellAddressDisplay">A1</div>
+      <div class="formula-fx">fx</div>
+      <input type="text" class="formula-input" id="formulaInput" placeholder="선택한 셀의 값을 확인하거나 수정할 수 있습니다">
+    </div>
+
+    <!-- Main Workspace (Sheet Grid + Right Summary Sidebar) -->
+    <main class="excel-workspace">
+      <!-- Left/Center Grid Table Container -->
+      <div class="sheet-container" id="sheetContainer" tabindex="0">
+        <table class="excel-table" id="excelTable">
+          <thead>
+            <!-- Column Letters (A, B, C, D, ...) -->
+            <tr class="col-headers-row">
+              <th class="corner-header">◢</th>
+              <th class="col-letter" style="width: 52px;">A</th>
+              <th class="col-letter" style="width: 44px;">B</th>
+              <th class="col-letter" style="width: 90px;">C</th>
+              <th class="col-letter" style="width: 100px;">D</th>
+              <th class="col-letter" style="width: 130px;">E</th>
+              <th class="col-letter" style="width: 220px;">F</th>
+              <th class="col-letter" style="width: 100px;">G</th>
+              <th class="col-letter" style="width: 54px;">H</th>
+              <th class="col-letter" style="width: 100px;">I</th>
+              <th class="col-letter" style="min-width: 170px;">J</th>
+              <th class="col-letter" style="width: 115px;">K</th>
+              <th class="col-letter col-del" style="width: 40px;">관리</th>
+            </tr>
+            <!-- Business Column Names matching User's Photo -->
+            <tr class="business-headers-row">
+              <th class="row-num-header">#</th>
+              <th class="b-header" data-col="no">No.</th>
+              <th class="b-header" data-col="gender">G</th>
+              <th class="b-header" data-col="chartNo">차트No.</th>
+              <th class="b-header" data-col="name">성함</th>
+              <th class="b-header" data-col="part">부위</th>
+              <th class="b-header" data-col="prescription">처방</th>
+              <th class="b-header" data-col="extra">추가 사항</th>
+              <th class="b-header" data-col="writer">작성</th>
+              <th class="b-header" data-col="memo">메모</th>
+              <th class="b-header" data-col="specialNote">특이 사항</th>
+              <th class="b-header" data-col="date">날짜</th>
+              <th class="b-header header-del">삭제</th>
+            </tr>
+          </thead>
+          <tbody id="tableBody">
+            <!-- Dynamic Rows will be injected here -->
+          </tbody>
+        </table>
+        <div class="bottom-add-bar">
+          <button type="button" class="btn-add-row-wide" id="btnBottomAddRow">+ 새 환자 행 추가 (새로 입력하기)</button>
+        </div>
+      </div>
+
+      <!-- Right Summary Panel (사진의 L, M 열 역할) -->
+      <aside class="excel-sidebar" id="summarySidebar">
+        <div class="sidebar-header">
+          <h3>📊 일일 현황 요약</h3>
+          <span class="target-date-tag" id="sidebarDateTag">2026.09.29</span>
+        </div>
+
+        <div class="stat-card primary">
+          <div class="stat-label">총 치료 환자 (건수)</div>
+          <div class="stat-value"><span id="statTotalCount">0</span> <small>명</small></div>
+          <div class="stat-sub">
+            <span>남(M): <b id="statMaleCount">0</b></span>
+            <span>여(F): <b id="statFemaleCount">0</b></span>
+          </div>
+        </div>
+
+        <div class="summary-section">
+          <h4>추가 사항 집계</h4>
+          <ul class="stat-list" id="statExtraList">
+            <li><span>충격파</span> <b id="statShockwave">0</b>건</li>
+            <li><span>이온</span> <b id="statIon">0</b>건</li>
+            <li><span>윈백</span> <b id="statWinback">0</b>건</li>
+            <li><span>기타 추가</span> <b id="statExtraOther">0</b>건</li>
+          </ul>
+        </div>
+
+        <div class="summary-section">
+          <h4>처방별 집계</h4>
+          <ul class="stat-list" id="statPrescriptionList">
+            <li><span>사지 치료</span> <b id="statPrescExtremity">0</b>건</li>
+            <li><span>척추 치료</span> <b id="statPrescSpine">0</b>건</li>
+            <li><span>항냉/학생 등</span> <b id="statPrescOther">0</b>건</li>
+          </ul>
+        </div>
+
+        <div class="summary-section recent-days-section">
+          <h4>최근 기록된 일자</h4>
+          <div class="recent-days-list" id="recentDaysList">
+            <!-- Dynamic Date Badges -->
+          </div>
+        </div>
+      </aside>
+    </main>
+
+    <!-- Bottom Status Bar (엑셀 시트 탭 + 상태 바) -->
+    <footer class="excel-statusbar">
+      <div class="sheet-tabs">
+        <button type="button" class="sheet-tab active" id="currentSheetTab">
+          <span class="sheet-icon">📄</span> <span id="sheetTabTitle">2026.09.29</span>
+        </button>
+        <button type="button" class="sheet-tab-add" id="btnQuickNewDay" title="다른 날짜 선택/추가">+</button>
+      </div>
+      <div class="statusbar-info">
+        <span class="status-item">준비 완료</span>
+        <span class="status-item">선택: <span id="selectedCellCoords">-</span></span>
+        <span class="status-item">오늘 날짜 자동 포커스 적용</span>
+      </div>
+    </footer>
+  </div>
+
+  <!-- Preview & Print Modal (미리보기 모달) -->
+  <div class="modal-overlay" id="previewModal" style="display:none;">
+    <div class="modal-card print-preview-card">
+      <div class="modal-header">
+        <div class="modal-title-wrap">
+          <h2>📄 물리치료실 일일 업무 일지 미리보기</h2>
+          <span class="preview-date-badge" id="previewModalDate">2026년 09월 29일</span>
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="btn-print" id="btnPrintConfirm">🖨️ 인쇄하기 (출력)</button>
+          <button type="button" class="btn-close-modal" id="btnClosePreview">✕</button>
+        </div>
+      </div>
+      <div class="modal-body preview-printable-area" id="printableArea">
+        <div class="doc-header-sheet">
+          <div class="doc-title-block">
+            <h1>물 리 치 료 실 &nbsp; 업 무 &nbsp; 일 지</h1>
+            <p class="doc-meta">일자 : <span id="printDateFull">2026년 09월 29일 (화요일)</span></p>
+          </div>
+          <table class="approval-table">
+            <tr>
+              <th rowspan="2">결<br>재</th>
+              <th>담 당</th>
+              <th>실 장</th>
+              <th>원 장</th>
+            </tr>
+            <tr>
+              <td class="sign-box"></td>
+              <td class="sign-box"></td>
+              <td class="sign-box"></td>
+            </tr>
+          </table>
+        </div>
+
+        <!-- Summary Mini Bar -->
+        <div class="print-summary-bar">
+          <div>총 환자 수: <strong id="printTotalCount">0</strong>명 (남: <span id="printMaleCount">0</span>, 여: <span id="printFemaleCount">0</span>)</div>
+          <div>충격파: <strong id="printShockwave">0</strong>건 | 이온: <strong id="printIon">0</strong>건 | 윈백: <strong id="printWinback">0</strong>건</div>
+        </div>
+
+        <!-- Print Grid Table -->
+        <table class="print-table">
+          <thead>
+            <tr>
+              <th style="width: 38px;">No</th>
+              <th style="width: 32px;">G</th>
+              <th style="width: 65px;">차트No</th>
+              <th style="width: 75px;">성함</th>
+              <th style="width: 90px;">부위</th>
+              <th>처방</th>
+              <th style="width: 70px;">추가사항</th>
+              <th style="width: 45px;">작성</th>
+              <th style="width: 65px;">메모</th>
+              <th style="width: 140px;">특이 사항</th>
+            </tr>
+          </thead>
+          <tbody id="printTableBody">
+            <!-- Dynamic Print Rows -->
+          </tbody>
+        </table>
+
+        <div class="print-footer-info">
+          <span>작성일시: <span id="printGeneratedTime">-</span></span>
+          <span>물리치료과 원무 보고용</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Backup & Restore Modal -->
+  <div class="modal-overlay" id="backupModal" style="display:none;">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h2>💾 전체 데이터 백업 및 복구</h2>
+        <button type="button" class="btn-close-modal" id="btnCloseBackup">✕</button>
+      </div>
+      <div class="modal-body">
+        <p class="guide-text">기기에 저장된 모든 날짜의 물리치료 기록을 JSON 파일로 내보내거나 가져올 수 있습니다.</p>
+        <div class="backup-actions">
+          <button type="button" class="btn-action primary" id="btnDownloadBackup">전체 데이터 다운로드 (백업)</button>
+          <label class="btn-action file-label">
+            백업 파일 복원 (.json)
+            <input type="file" id="fileRestore" accept=".json" style="display:none;">
+          </label>
+        </div>
+        <div class="danger-zone">
+          <h4>주의 영역</h4>
+          <button type="button" class="btn-action danger" id="btnClearAllData">오늘 데이터 전체 비우기</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

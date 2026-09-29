@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="excelGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#107C41"/>
+      <stop offset="100%" stop-color="#0a522a"/>
+    </linearGradient>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="12" stdDeviation="16" flood-color="#000000" flood-opacity="0.25"/>
+    </filter>
+  </defs>
+  
+  <!-- Base Background -->
+  <rect width="512" height="512" rx="112" fill="url(#excelGrad)"/>
+  
+  <!-- Sheet Grid Background -->
+  <rect x="76" y="86" width="360" height="340" rx="24" fill="#ffffff" filter="url(#shadow)"/>
+  
+  <!-- Header row in grid -->
+  <rect x="76" y="86" width="360" height="70" rx="24" fill="#E2EFDA"/>
+  <rect x="76" y="132" width="360" height="24" fill="#E2EFDA"/>
+  
+  <!-- Grid lines -->
+  <line x1="76" y1="156" x2="436" y2="156" stroke="#C6E0B4" stroke-width="3"/>
+  <line x1="76" y1="220" x2="436" y2="220" stroke="#E0E0E0" stroke-width="2"/>
+  <line x1="76" y1="284" x2="436" y2="284" stroke="#E0E0E0" stroke-width="2"/>
+  <line x1="76" y1="348" x2="436" y2="348" stroke="#E0E0E0" stroke-width="2"/>
+  
+  <line x1="166" y1="86" x2="166" y2="426" stroke="#C6E0B4" stroke-width="2"/>
+  <line x1="286" y1="86" x2="286" y2="426" stroke="#E0E0E0" stroke-width="2"/>
+  <line x1="366" y1="86" x2="366" y2="426" stroke="#E0E0E0" stroke-width="2"/>
+  
+  <!-- PT Badge (Medical Cross + PT Text) -->
+  <rect x="60" y="240" width="170" height="170" rx="36" fill="#107C41" filter="url(#shadow)"/>
+  <!-- Cross -->
+  <path d="M 125 270 L 165 270 L 165 310 L 205 310 L 205 350 L 165 350 L 165 390 L 125 390 L 125 350 L 85 350 L 85 310 L 125 310 Z" fill="#ffffff" opacity="0.25"/>
+  <!-- Text PT -->
+  <text x="145" y="348" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-weight="900" font-size="76" fill="#ffffff" text-anchor="middle">PT</text>
+  
+  <!-- Small Excel 'X' Accent -->
+  <circle cx="380" cy="120" r="18" fill="#107C41"/>
+  <text x="380" y="127" font-family="sans-serif" font-weight="bold" font-size="20" fill="#ffffff" text-anchor="middle">X</text>
+</svg>
