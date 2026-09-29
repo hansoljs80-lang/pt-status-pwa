@@ -297,12 +297,19 @@ class PTApp {
       const { rowIdx, colKey } = this.activeCell;
       const rows = this.getCurrentRows();
       if (rows[rowIdx]) {
-        rows[rowIdx][colKey] = e.target.value;
+        let val = e.target.value;
+        if (colKey === "gender") {
+          val = this.normalizeGenderInput(val);
+          e.target.value = val;
+          this.setGenderValue(rowIdx, val);
+          return;
+        }
+        rows[rowIdx][colKey] = val;
         const cellEl = document.querySelector(`.excel-cell[data-row="${rowIdx}"][data-col="${colKey}"]`);
         if (cellEl) {
           const inputEl = cellEl.querySelector("input");
-          if (inputEl) inputEl.value = e.target.value;
-          else cellEl.textContent = e.target.value;
+          if (inputEl) inputEl.value = val;
+          else cellEl.textContent = val;
         }
         this.saveDataStore();
       }
@@ -524,7 +531,7 @@ class PTApp {
           td.textContent = val;
           if (val === "F") td.classList.add("f");
           if (val === "M") td.classList.add("m");
-          td.title = "클릭하여 F/M 변경 가능";
+          td.title = "클릭하여 드롭박스로 M/F 선택 (키보드 M, F, ㅡ, ㄹ 입력 지원)";
         } else {
           td.textContent = val;
         }
@@ -532,8 +539,8 @@ class PTApp {
         // Cell Mouse Down handler (Start Drag Selection)
         td.addEventListener("mousedown", (e) => {
           if (e.button !== 0) return; // Only Left Click
-          // If already editing inside input, don't interrupt text cursor
-          if (e.target.tagName === "INPUT") return;
+          // If already editing inside input/select, don't interrupt text cursor
+          if (e.target.tagName === "INPUT" || e.target.tagName === "SELECT") return;
 
           this.isSelectingRange = true;
           this.rangeStart = { rowIdx, colIdx, colKey: key };
@@ -554,29 +561,18 @@ class PTApp {
           this.updateRangeSelection();
         });
 
-        // Cell Click handler (Gender toggle only)
-        td.addEventListener("click", () => {
+        // Cell Click handler (Gender opens dropdown select)
+        td.addEventListener("click", (e) => {
           if (key === "gender") {
-            const current = row.gender;
-            let next = "";
-            if (!current || current === "") next = "F";
-            else if (current === "F") next = "M";
-            else if (current === "M") next = "";
-            row.gender = next;
-            td.textContent = next;
-            td.classList.remove("f", "m");
-            if (next === "F") td.classList.add("f");
-            if (next === "M") td.classList.add("m");
-            this.elFormulaInput.value = next;
-            this.saveDataStore();
+            if (e.target.tagName !== "SELECT") {
+              this.startGenderEdit(rowIdx, td);
+            }
           }
         });
 
         // Cell Double Click to inline edit
         td.addEventListener("dblclick", () => {
-          if (key !== "gender") {
-            this.startInlineEdit(rowIdx, key, td);
-          }
+          this.startInlineEdit(rowIdx, key, td);
         });
 
         tr.appendChild(td);
@@ -647,7 +643,127 @@ class PTApp {
     cellElement.classList.add("cell-focused");
   }
 
+  // G열 성별 정규화 헬퍼 (무조건 영어 대문자 M 또는 F, 'ㄹ' -> 'F', 'ㅡ' -> 'M')
+  normalizeGenderInput(val) {
+    if (!val) return "";
+    const s = String(val).trim();
+    if (s === "ㄹ" || s === "f" || s === "F") return "F";
+    if (s === "ㅡ" || s === "m" || s === "M") return "M";
+    return "";
+  }
+
+  setGenderValue(rowIdx, rawVal, cellEl = null) {
+    const rows = this.getCurrentRows();
+    if (!rows[rowIdx]) return;
+    const finalVal = this.normalizeGenderInput(rawVal);
+    rows[rowIdx].gender = finalVal;
+
+    const el = cellEl || document.querySelector(`.excel-cell[data-row="${rowIdx}"][data-col="gender"]`);
+    if (el) {
+      el.textContent = finalVal;
+      el.classList.remove("f", "m");
+      if (finalVal === "F") el.classList.add("f");
+      if (finalVal === "M") el.classList.add("m");
+    }
+
+    if (this.activeCell && this.activeCell.rowIdx === rowIdx && this.activeCell.colKey === "gender") {
+      this.elFormulaInput.value = finalVal;
+    }
+
+    this.saveDataStore();
+  }
+
+  startGenderEdit(rowIdx, cellElement) {
+    if (cellElement.querySelector("select") || cellElement.querySelector("input")) return;
+
+    const rows = this.getCurrentRows();
+    const currentVal = rows[rowIdx] ? (rows[rowIdx].gender || "") : "";
+
+    cellElement.textContent = "";
+    const select = document.createElement("select");
+    select.className = "cell-gender-select";
+
+    const optNone = document.createElement("option");
+    optNone.value = "";
+    optNone.textContent = "- (선택 안함)";
+
+    const optM = document.createElement("option");
+    optM.value = "M";
+    optM.textContent = "M (남성)";
+
+    const optF = document.createElement("option");
+    optF.value = "F";
+    optF.textContent = "F (여성)";
+
+    select.appendChild(optNone);
+    select.appendChild(optM);
+    select.appendChild(optF);
+    select.value = currentVal;
+
+    cellElement.appendChild(select);
+    select.focus();
+
+    let committed = false;
+    const commit = (val) => {
+      if (committed) return;
+      committed = true;
+      this.setGenderValue(rowIdx, val, cellElement);
+    };
+
+    select.addEventListener("change", (e) => {
+      commit(e.target.value);
+    });
+
+    select.addEventListener("blur", () => {
+      commit(select.value);
+    });
+
+    select.addEventListener("keydown", (e) => {
+      const key = e.key;
+      // 한글 오타 및 영문 대소문자 자동 변환
+      if (key === "ㄹ" || key.toLowerCase() === "f") {
+        e.preventDefault();
+        commit("F");
+        this.navigateCell(rowIdx + 1, "gender");
+        return;
+      }
+      if (key === "ㅡ" || key.toLowerCase() === "m") {
+        e.preventDefault();
+        commit("M");
+        this.navigateCell(rowIdx + 1, "gender");
+        return;
+      }
+      if (key === "Delete" || key === "Backspace" || key === " ") {
+        e.preventDefault();
+        commit("");
+        return;
+      }
+      if (key === "Enter") {
+        e.preventDefault();
+        commit(select.value);
+        this.navigateCell(rowIdx + (e.shiftKey ? -1 : 1), "gender");
+        return;
+      }
+      if (key === "Tab") {
+        e.preventDefault();
+        commit(select.value);
+        this.navigateCol(rowIdx, "gender", e.shiftKey ? -1 : 1);
+        return;
+      }
+      if (key === "Escape") {
+        e.preventDefault();
+        commit(currentVal);
+        return;
+      }
+    });
+  }
+
   startInlineEdit(rowIdx, colKey, cellElement) {
+    if (colKey === "gender") {
+      this.startGenderEdit(rowIdx, cellElement);
+      return;
+    }
+
     // If already editing
     if (cellElement.querySelector("input") || cellElement.querySelector("select")) return;
 
@@ -1907,7 +2023,8 @@ class PTApp {
         if (c < colKeys.length) {
           const k = colKeys[c];
           if (k && k !== "date") {
-            rows[r][k] = val.trim();
+            const trimmed = val.trim();
+            rows[r][k] = k === "gender" ? this.normalizeGenderInput(trimmed) : trimmed;
           }
         }
       });
@@ -2201,11 +2318,37 @@ class PTApp {
     // 12) F2 -> Edit active cell
     if (e.key === "F2" && this.activeCell) {
       const { rowIdx, colKey } = this.activeCell;
-      if (colKey !== "gender") {
-        const cellEl = document.querySelector(`.excel-cell[data-row="${rowIdx}"][data-col="${colKey}"]`);
-        if (cellEl && !cellEl.querySelector("input")) {
+      const cellEl = document.querySelector(`.excel-cell[data-row="${rowIdx}"][data-col="${colKey}"]`);
+      if (cellEl && !cellEl.querySelector("input") && !cellEl.querySelector("select")) {
+        e.preventDefault();
+        this.startInlineEdit(rowIdx, colKey, cellEl);
+        return;
+      }
+    }
+
+    // G열 성별 키보드 직접 입력 ('ㄹ' -> 'F', 'ㅡ' -> 'M', 'f'/'F' -> 'F', 'm'/'M' -> 'M')
+    if (this.activeCell && this.activeCell.colKey === "gender" && !isCtrlOrMeta && !e.altKey) {
+      const { rowIdx } = this.activeCell;
+      const cellEl = document.querySelector(`.excel-cell[data-row="${rowIdx}"][data-col="gender"]`);
+      if (cellEl && !cellEl.querySelector("select")) {
+        if (e.key === "ㄹ" || keyLower === "f") {
           e.preventDefault();
-          this.startInlineEdit(rowIdx, colKey, cellEl);
+          this.setGenderValue(rowIdx, "F", cellEl);
+          return;
+        }
+        if (e.key === "ㅡ" || keyLower === "m") {
+          e.preventDefault();
+          this.setGenderValue(rowIdx, "M", cellEl);
+          return;
+        }
+        if (e.key === "Delete" || e.key === "Backspace" || e.key === " ") {
+          e.preventDefault();
+          this.setGenderValue(rowIdx, "", cellEl);
+          return;
+        }
+        if (e.key === "Enter") {
+          e.preventDefault();
+          this.startGenderEdit(rowIdx, cellEl);
           return;
         }
       }
@@ -2249,7 +2392,7 @@ class PTApp {
       return;
     }
 
-    // 16) Direct character typing to begin editing
+    // 16) Direct character typing to begin editing (for text cells)
     if (this.activeCell && e.key.length === 1 && !isCtrlOrMeta && !e.altKey) {
       const { rowIdx, colKey } = this.activeCell;
       if (colKey !== "gender") {

@@ -712,9 +712,46 @@ body {
 
 /* Alignment per column type */
 .cell-no { text-align: center; font-weight: 600; color: #555; }
-.cell-gender { text-align: center; font-weight: bold; }
+.cell-gender {
+  text-align: center;
+  font-weight: bold;
+  position: relative;
+}
 .cell-gender.f { color: #d63384; }
 .cell-gender.m { color: #0d6efd; }
+
+/* Excel style dropdown indicator for Gender */
+.cell-gender.cell-focused::after {
+  content: "▼";
+  position: absolute;
+  right: 2px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 8px;
+  color: var(--excel-green-dark);
+  pointer-events: none;
+  opacity: 0.8;
+}
+
+.cell-gender-select {
+  width: 100%;
+  height: 100%;
+  border: none;
+  outline: 2px solid var(--excel-green);
+  background: #ffffff;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: bold;
+  text-align: center;
+  cursor: pointer;
+  padding: 0 4px;
+  margin: 0;
+  border-radius: 0;
+  box-sizing: border-box;
+}
+.cell-gender-select:focus {
+  outline: 2px solid var(--excel-green);
+}
 .cell-chartNo { text-align: right; font-family: monospace; font-size: 12px; }
 .cell-name { text-align: center; font-weight: 600; }
 .cell-part { text-align: left; }
