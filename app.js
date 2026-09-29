@@ -74,6 +74,12 @@ class PTApp {
     this.rangeEnd = null;   // { rowIdx, colIdx, colKey }
     this.selectedRange = null; // { minRow, maxRow, minCol, maxCol }
 
+    // Row Drag Selection (행 헤더 드래그 다중 선택)
+    this.isSelectingRows = false;
+    this.rowRangeStart = null;
+    this.rowRangeEnd = null;
+    this.selectedRowRange = null; // { minRow, maxRow }
+
     // Clipboard & Context Menu
     this.clipboardBuffer = ""; // 내부 클립보드 버퍼 (TSV 형식)
     this.contextTarget = null; // { type: 'cell'|'row'|'col'|'corner', rowIdx, colKey, colIdx }
@@ -352,13 +358,19 @@ class PTApp {
       }
     });
 
-    // Global mouseup to finish drag selection
+    // Global mouseup to finish drag selection (cells or rows)
     document.addEventListener("mouseup", () => {
+      let changed = false;
       if (this.isSelectingRange) {
         this.isSelectingRange = false;
-        if (this.elSheetContainer) {
-          this.elSheetContainer.classList.remove("is-selecting");
-        }
+        changed = true;
+      }
+      if (this.isSelectingRows) {
+        this.isSelectingRows = false;
+        changed = true;
+      }
+      if (changed && this.elSheetContainer) {
+        this.elSheetContainer.classList.remove("is-selecting");
       }
     });
   }
@@ -470,10 +482,29 @@ class PTApp {
       const thNum = document.createElement("th");
       thNum.className = "row-num";
       thNum.textContent = excelRowNum;
-      thNum.title = `행 ${excelRowNum} 클릭하여 행 전체 선택`;
-      thNum.addEventListener("click", () => {
-        this.selectEntireRow(rowIdx);
+      thNum.title = `행 ${excelRowNum} 클릭 및 드래그하여 다중 행 선택`;
+
+      // Mouse down on row header (Start Row Drag Selection)
+      thNum.addEventListener("mousedown", (e) => {
+        if (e.button !== 0) return; // Only Left Click
+        this.isSelectingRows = true;
+        this.rowRangeStart = rowIdx;
+        this.rowRangeEnd = rowIdx;
+
+        if (this.elSheetContainer) {
+          this.elSheetContainer.classList.add("is-selecting");
+        }
+
+        this.selectRowRange(rowIdx, rowIdx);
       });
+
+      // Mouse enter on row header during drag selection
+      thNum.addEventListener("mouseenter", () => {
+        if (!this.isSelectingRows) return;
+        this.rowRangeEnd = rowIdx;
+        this.selectRowRange(this.rowRangeStart, this.rowRangeEnd);
+      });
+
       tr.appendChild(thNum);
 
       // Columns
@@ -770,6 +801,7 @@ class PTApp {
       );
     });
     this.selectedRange = null;
+    this.selectedRowRange = null;
   }
 
   updateRangeSelection() {
@@ -863,22 +895,44 @@ class PTApp {
   }
 
   selectEntireRow(rowIdx) {
+    this.selectRowRange(rowIdx, rowIdx);
+  }
+
+  selectRowRange(startRowIdx, endRowIdx) {
     this.clearHeaderSelections();
-    this.selectedRowIdx = rowIdx;
+
+    const minRow = Math.min(startRowIdx, endRowIdx);
+    const maxRow = Math.max(startRowIdx, endRowIdx);
+
+    this.selectedRowRange = { minRow, maxRow };
+    this.selectedRowIdx = minRow;
     this.selectedColKey = null;
 
-    const rowTr = document.querySelector(`tr[data-row-idx="${rowIdx}"]`);
-    if (rowTr) {
-      const rowNumTh = rowTr.querySelector(".row-num");
-      if (rowNumTh) rowNumTh.classList.add("selected");
-      rowTr.querySelectorAll(".excel-cell").forEach((cell) => {
-        cell.classList.add("row-selected");
-      });
+    // Apply entire row range (columns 0 to 10) so copy/cut/clear automatically covers all columns
+    this.selectedRange = { minRow, maxRow, minCol: 0, maxCol: 10 };
+
+    for (let r = minRow; r <= maxRow; r++) {
+      const rowTr = document.querySelector(`tr[data-row-idx="${r}"]`);
+      if (rowTr) {
+        const rowNumTh = rowTr.querySelector(".row-num");
+        if (rowNumTh) rowNumTh.classList.add("selected");
+        rowTr.querySelectorAll(".excel-cell").forEach((cell) => {
+          cell.classList.add("row-selected");
+        });
+      }
     }
 
-    const excelRowNum = BASE_ROW_NUMBER + rowIdx;
-    this.elCellAddress.textContent = `${excelRowNum}:${excelRowNum}`;
-    this.elSelectedCellCoords.textContent = `${excelRowNum}행 전체 선택`;
+    const startNum = BASE_ROW_NUMBER + minRow;
+    const endNum = BASE_ROW_NUMBER + maxRow;
+
+    if (minRow === maxRow) {
+      this.elCellAddress.textContent = `${startNum}:${startNum}`;
+      this.elSelectedCellCoords.textContent = `${startNum}행 전체 선택`;
+    } else {
+      const rowCount = maxRow - minRow + 1;
+      this.elCellAddress.textContent = `${startNum}:${endNum}`;
+      this.elSelectedCellCoords.textContent = `${startNum}~${endNum}행 선택 (${rowCount}개 행)`;
+    }
     this.elFormulaInput.value = "";
   }
 
@@ -1599,8 +1653,17 @@ class PTApp {
       e.preventDefault();
       const tr = thRow.closest("tr");
       const rowIdx = parseInt(tr.dataset.rowIdx, 10);
-      this.contextTarget = { type: "row", rowIdx };
-      this.selectEntireRow(rowIdx);
+
+      // Keep multi-selection if right-clicked inside the current selected row range
+      const inRowRange = this.selectedRowRange &&
+        rowIdx >= this.selectedRowRange.minRow &&
+        rowIdx <= this.selectedRowRange.maxRow;
+
+      if (!inRowRange) {
+        this.selectRowRange(rowIdx, rowIdx);
+      }
+
+      this.contextTarget = { type: "row", rowIdx, rowRange: this.selectedRowRange };
 
       // Show Row items (위에 행 1개 삽입, 아래에 행 1개 삽입, 행 데이터 삭제, 행 삭제)
       rowOnlyItems.forEach((el) => el.classList.remove("hidden"));
@@ -1946,27 +2009,54 @@ class PTApp {
 
   clearRowData(targetRowIdx) {
     const rows = this.getCurrentRows();
-    if (rows[targetRowIdx]) {
-      const r = rows[targetRowIdx];
-      r.no = "";
-      r.gender = "";
-      r.chartNo = "";
-      r.name = "";
-      r.part = "";
-      r.prescription = "";
-      r.extra = "";
-      r.memo = "";
-      r.specialNote = "";
-      this.saveDataStore();
-      this.renderTable();
-      this.showSaveIndicator(`${targetRowIdx + BASE_ROW_NUMBER}행 데이터가 삭제되었습니다.`);
+    let minRow = targetRowIdx;
+    let maxRow = targetRowIdx;
+
+    if (this.selectedRowRange &&
+        targetRowIdx >= this.selectedRowRange.minRow &&
+        targetRowIdx <= this.selectedRowRange.maxRow) {
+      minRow = this.selectedRowRange.minRow;
+      maxRow = this.selectedRowRange.maxRow;
     }
+
+    for (let r = minRow; r <= maxRow; r++) {
+      if (rows[r]) {
+        const rowObj = rows[r];
+        rowObj.no = "";
+        rowObj.gender = "";
+        rowObj.chartNo = "";
+        rowObj.name = "";
+        rowObj.part = "";
+        rowObj.prescription = "";
+        rowObj.extra = "";
+        rowObj.memo = "";
+        rowObj.specialNote = "";
+      }
+    }
+
+    this.saveDataStore();
+    this.renderTable();
+    const count = maxRow - minRow + 1;
+    const msg = count > 1
+      ? `${minRow + BASE_ROW_NUMBER}~${maxRow + BASE_ROW_NUMBER}행 (${count}개 행) 데이터가 삭제되었습니다.`
+      : `${minRow + BASE_ROW_NUMBER}행 데이터가 삭제되었습니다.`;
+    this.showSaveIndicator(msg);
   }
 
   deleteRowAt(targetRowIdx) {
     const rows = this.getCurrentRows();
-    if (targetRowIdx >= 0 && targetRowIdx < rows.length) {
-      rows.splice(targetRowIdx, 1);
+    let minRow = targetRowIdx;
+    let deleteCount = 1;
+
+    if (this.selectedRowRange &&
+        targetRowIdx >= this.selectedRowRange.minRow &&
+        targetRowIdx <= this.selectedRowRange.maxRow) {
+      minRow = this.selectedRowRange.minRow;
+      deleteCount = this.selectedRowRange.maxRow - this.selectedRowRange.minRow + 1;
+    }
+
+    if (minRow >= 0 && minRow < rows.length) {
+      rows.splice(minRow, deleteCount);
       // Guarantee minimum 150 rows maintained
       const formattedDate = this.currentDate.replace(/-/g, ".");
       while (rows.length < DEFAULT_ROW_COUNT) {
@@ -1985,9 +2075,13 @@ class PTApp {
         });
       }
       this.selectedRowIdx = null;
+      this.selectedRowRange = null;
       this.saveDataStore();
       this.renderTable();
-      this.showSaveIndicator(`${targetRowIdx + BASE_ROW_NUMBER}행이 삭제되었습니다.`);
+      const msg = deleteCount > 1
+        ? `${minRow + BASE_ROW_NUMBER}~${minRow + deleteCount - 1 + BASE_ROW_NUMBER}행 (${deleteCount}개 행)이 삭제되었습니다.`
+        : `${minRow + BASE_ROW_NUMBER}행이 삭제되었습니다.`;
+      this.showSaveIndicator(msg);
     }
   }
 
