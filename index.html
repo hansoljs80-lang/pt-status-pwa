@@ -357,6 +357,62 @@ CREATE POLICY "Allow public all" ON pt_daily_records FOR ALL TO anon, authentica
         </div>
       </div>
     </div>
+  <!-- Excel Right-Click Context Menu -->
+  <div class="excel-context-menu" id="excelContextMenu" style="display: none;">
+    <div class="menu-item" data-action="cut">
+      <span class="menu-icon">✂️</span>
+      <span class="menu-label">잘라내기</span>
+      <span class="menu-shortcut">Ctrl+X</span>
+    </div>
+    <div class="menu-item" data-action="copy">
+      <span class="menu-icon">📋</span>
+      <span class="menu-label">복사</span>
+      <span class="menu-shortcut">Ctrl+C</span>
+    </div>
+    <div class="menu-item" data-action="paste">
+      <span class="menu-icon">📄</span>
+      <span class="menu-label">붙여넣기</span>
+      <span class="menu-shortcut">Ctrl+V</span>
+    </div>
+    <div class="menu-item" data-action="clear-contents">
+      <span class="menu-icon">🧹</span>
+      <span class="menu-label">내용 지우기</span>
+      <span class="menu-shortcut">Del</span>
+    </div>
+
+    <!-- Row-specific actions (Shown when right clicking row header) -->
+    <div class="menu-divider row-only-item"></div>
+    <div class="menu-item row-only-item" data-action="insert-row-above">
+      <span class="menu-icon">⬆️</span>
+      <span class="menu-label">위에 행 1개 삽입</span>
+    </div>
+    <div class="menu-item row-only-item" data-action="insert-row-below">
+      <span class="menu-icon">⬇️</span>
+      <span class="menu-label">아래에 행 1개 삽입</span>
+    </div>
+    <div class="menu-item row-only-item" data-action="clear-row-data">
+      <span class="menu-icon">🧹</span>
+      <span class="menu-label">행 데이터 삭제</span>
+    </div>
+    <div class="menu-item row-only-item danger" data-action="delete-row">
+      <span class="menu-icon">🗑️</span>
+      <span class="menu-label">행 삭제</span>
+    </div>
+
+    <!-- Col-specific actions (Shown when right clicking col header) -->
+    <div class="menu-divider col-only-item"></div>
+    <div class="menu-item col-only-item" data-action="clear-col-data">
+      <span class="menu-icon">🧹</span>
+      <span class="menu-label">열 데이터 비우기</span>
+    </div>
+    <div class="menu-item col-only-item" data-action="sort-col-asc">
+      <span class="menu-icon">🔼</span>
+      <span class="menu-label">오름차순 정렬</span>
+    </div>
+    <div class="menu-item col-only-item" data-action="sort-col-desc">
+      <span class="menu-icon">🔽</span>
+      <span class="menu-label">내림차순 정렬</span>
+    </div>
   </div>
 
   <script src="app.js"></script>

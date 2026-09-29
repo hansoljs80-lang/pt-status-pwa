@@ -39,6 +39,24 @@ const DEFAULT_WRITER = "S";
 const BASE_ROW_NUMBER = 1; // 행 번호 1부터 시작
 const DEFAULT_ROW_COUNT = 150; // 기본 하루 150개 행
 
+// =============================================================================
+// 엑셀(Excel) 기반 기본 단축키 설정 매핑 테이블
+// 필요에 따라 나중에 이 설정 객체의 키 값을 자유롭게 변경할 수 있습니다.
+// =============================================================================
+const EXCEL_SHORTCUTS = {
+  COPY: { key: "c", ctrlOrMeta: true, desc: "복사 (Ctrl+C / Cmd+C)" },
+  CUT: { key: "x", ctrlOrMeta: true, desc: "잘라내기 (Ctrl+X / Cmd+X)" },
+  PASTE: { key: "v", ctrlOrMeta: true, desc: "붙여넣기 (Ctrl+V / Cmd+V)" },
+  CLEAR: { key: "Delete", ctrlOrMeta: false, desc: "내용 지우기 (Delete/Backspace)" },
+  SELECT_ALL: { key: "a", ctrlOrMeta: true, desc: "전체 선택 (Ctrl+A)" },
+  SAVE: { key: "s", ctrlOrMeta: true, desc: "저장 (Ctrl+S)" },
+  PRINT: { key: "p", ctrlOrMeta: true, desc: "인쇄 및 미리보기 (Ctrl+P)" },
+  SEARCH: { key: "f", ctrlOrMeta: true, desc: "환자 검색 (Ctrl+F)" },
+  EDIT: { key: "F2", ctrlOrMeta: false, desc: "셀 직접 편집 (F2)" },
+  INSERT_ROW: { key: "+", ctrlOrMeta: true, desc: "행 삽입 (Ctrl + '+')" },
+  DELETE_ROW: { key: "-", ctrlOrMeta: true, desc: "행 삭제 (Ctrl + '-')" }
+};
+
 class PTApp {
   constructor() {
     this.dataStore = this.loadDataStore();
@@ -56,8 +74,13 @@ class PTApp {
     this.rangeEnd = null;   // { rowIdx, colIdx, colKey }
     this.selectedRange = null; // { minRow, maxRow, minCol, maxCol }
 
+    // Clipboard & Context Menu
+    this.clipboardBuffer = ""; // 내부 클립보드 버퍼 (TSV 형식)
+    this.contextTarget = null; // { type: 'cell'|'row'|'col'|'corner', rowIdx, colKey, colIdx }
+
     this.cacheElements();
     this.bindEvents();
+    this.initContextMenu();
     this.initColumnResizing();
     this.initSupabase();
     this.initPWA();
@@ -194,6 +217,9 @@ class PTApp {
     this.elSupabaseManualSyncBox = document.getElementById("supabaseManualSyncBox");
     this.elBtnPushToCloud = document.getElementById("btnPushToCloud");
     this.elBtnPullFromCloud = document.getElementById("btnPullFromCloud");
+
+    // Right-Click Context Menu
+    this.elContextMenu = document.getElementById("excelContextMenu");
   }
 
   bindEvents() {
@@ -309,12 +335,20 @@ class PTApp {
     // Keyboard Shortcuts
     document.addEventListener("keydown", (e) => this.handleGlobalKeyDown(e));
 
-    // Close modal on escape
+    // Close modal & context menu on escape
     document.addEventListener("keydown", (e) => {
       if (e.key === "Escape") {
+        this.hideContextMenu();
         this.closePreviewModal();
         this.closeBackupModal();
         this.closeSupabaseModal();
+      }
+    });
+
+    // Close context menu on outside click
+    document.addEventListener("click", (e) => {
+      if (this.elContextMenu && !this.elContextMenu.contains(e.target)) {
+        this.hideContextMenu();
       }
     });
 
@@ -1529,24 +1563,537 @@ class PTApp {
     }
   }
 
-  // Global Keyboard Shortcuts
-  handleGlobalKeyDown(e) {
-    if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA") {
-      return;
-    }
-    // Ctrl+P or Cmd+P -> Preview modal
-    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "p") {
+  // =============================================================================
+  // Right-Click Context Menu & Excel Actions (우클릭 컨텍스트 메뉴 및 엑셀 액션)
+  // =============================================================================
+  initContextMenu() {
+    if (!this.elSheetContainer || !this.elContextMenu) return;
+
+    // Open context menu on right click in sheet container
+    this.elSheetContainer.addEventListener("contextmenu", (e) => {
+      this.handleTableContextMenu(e);
+    });
+
+    // Context menu item click dispatcher
+    this.elContextMenu.addEventListener("click", (e) => {
+      const menuItem = e.target.closest(".menu-item");
+      if (!menuItem) return;
+
+      const action = menuItem.dataset.action;
+      this.executeContextAction(action);
+      this.hideContextMenu();
+    });
+  }
+
+  handleTableContextMenu(e) {
+    const thRow = e.target.closest("th.row-num");
+    const thCol = e.target.closest("th.col-letter, th.b-header");
+    const thCorner = e.target.closest("#cornerHeader");
+    const tdCell = e.target.closest(".excel-cell");
+
+    const rowOnlyItems = this.elContextMenu.querySelectorAll(".row-only-item");
+    const colOnlyItems = this.elContextMenu.querySelectorAll(".col-only-item");
+
+    if (thRow) {
+      // 1) Right Click on Row Number Header (행 헤더 우클릭)
       e.preventDefault();
-      this.openPreviewModal();
+      const tr = thRow.closest("tr");
+      const rowIdx = parseInt(tr.dataset.rowIdx, 10);
+      this.contextTarget = { type: "row", rowIdx };
+      this.selectEntireRow(rowIdx);
+
+      // Show Row items (위에 행 1개 삽입, 아래에 행 1개 삽입, 행 데이터 삭제, 행 삭제)
+      rowOnlyItems.forEach((el) => el.classList.remove("hidden"));
+      colOnlyItems.forEach((el) => el.classList.add("hidden"));
+      this.showContextMenu(e.clientX, e.clientY);
+    } else if (thCol) {
+      // 2) Right Click on Column Header (열 헤더 우클릭)
+      const colKey = thCol.dataset.col;
+      const colLetter = thCol.dataset.colLetter || "";
+      if (!colKey || colKey === "del") return;
+
+      e.preventDefault();
+      this.contextTarget = { type: "col", colKey, colLetter };
+      this.selectEntireColumn(colKey, colLetter);
+
+      // Show Column items
+      rowOnlyItems.forEach((el) => el.classList.add("hidden"));
+      colOnlyItems.forEach((el) => el.classList.remove("hidden"));
+      this.showContextMenu(e.clientX, e.clientY);
+    } else if (thCorner) {
+      // 3) Right Click on Corner Header (시트 전체 선택)
+      e.preventDefault();
+      this.contextTarget = { type: "corner" };
+      this.selectAllCells();
+
+      rowOnlyItems.forEach((el) => el.classList.add("hidden"));
+      colOnlyItems.forEach((el) => el.classList.add("hidden"));
+      this.showContextMenu(e.clientX, e.clientY);
+    } else if (tdCell) {
+      // 4) Right Click on General Cell (일반 셀 우클릭)
+      e.preventDefault();
+      const rowIdx = parseInt(tdCell.dataset.row, 10);
+      const colKey = tdCell.dataset.col;
+      const colIdx = parseInt(tdCell.dataset.colIdx, 10);
+
+      this.contextTarget = { type: "cell", rowIdx, colKey, colIdx };
+
+      // Keep multi-selection if right-clicked inside the current selected range
+      const inRange = this.selectedRange &&
+        rowIdx >= this.selectedRange.minRow && rowIdx <= this.selectedRange.maxRow &&
+        colIdx >= this.selectedRange.minCol && colIdx <= this.selectedRange.maxCol;
+
+      if (!inRange) {
+        this.selectCell(rowIdx, colKey, tdCell, false);
+      }
+
+      // Hide row/col exclusive items
+      rowOnlyItems.forEach((el) => el.classList.add("hidden"));
+      colOnlyItems.forEach((el) => el.classList.add("hidden"));
+      this.showContextMenu(e.clientX, e.clientY);
+    }
+  }
+
+  showContextMenu(clientX, clientY) {
+    if (!this.elContextMenu) return;
+    const menu = this.elContextMenu;
+    menu.style.display = "block";
+    menu.style.visibility = "hidden";
+
+    const menuRect = menu.getBoundingClientRect();
+    const menuWidth = menuRect.width || 210;
+    const menuHeight = menuRect.height || 260;
+
+    let posX = clientX;
+    let posY = clientY;
+
+    if (posX + menuWidth > window.innerWidth) {
+      posX = window.innerWidth - menuWidth - 8;
+    }
+    if (posY + menuHeight > window.innerHeight) {
+      posY = window.innerHeight - menuHeight - 8;
+    }
+
+    menu.style.left = `${Math.max(8, posX)}px`;
+    menu.style.top = `${Math.max(8, posY)}px`;
+    menu.style.visibility = "visible";
+  }
+
+  hideContextMenu() {
+    if (this.elContextMenu) {
+      this.elContextMenu.style.display = "none";
+    }
+  }
+
+  executeContextAction(action) {
+    const targetRow = this.contextTarget?.rowIdx ?? this.selectedRowIdx ?? (this.activeCell ? this.activeCell.rowIdx : 0);
+    const targetCol = this.contextTarget?.colKey ?? this.selectedColKey;
+
+    switch (action) {
+      case "cut":
+        this.cutSelection();
+        break;
+      case "copy":
+        this.copySelection();
+        break;
+      case "paste":
+        this.pasteSelection();
+        break;
+      case "clear-contents":
+        this.clearSelection();
+        break;
+      case "insert-row-above":
+        this.insertRowAbove(targetRow);
+        break;
+      case "insert-row-below":
+        this.insertRowBelow(targetRow);
+        break;
+      case "clear-row-data":
+        this.clearRowData(targetRow);
+        break;
+      case "delete-row":
+        this.deleteRowAt(targetRow);
+        break;
+      case "clear-col-data":
+        if (targetCol) this.clearColData(targetCol);
+        break;
+      case "sort-col-asc":
+        if (targetCol) {
+          this.sortState.colKey = targetCol;
+          this.sortState.direction = "desc"; // sortByColumn will toggle to asc
+          this.sortByColumn(targetCol);
+        }
+        break;
+      case "sort-col-desc":
+        if (targetCol) {
+          this.sortState.colKey = targetCol;
+          this.sortState.direction = "asc"; // sortByColumn will toggle to desc
+          this.sortByColumn(targetCol);
+        }
+        break;
+      default:
+        console.warn("Unknown context action:", action);
+    }
+  }
+
+  // =============================================================================
+  // Clipboard Operations (클립보드 연동: 복사, 잘라내기, 붙여넣기, 지우기)
+  // =============================================================================
+  copySelection() {
+    const colKeys = ["no", "gender", "chartNo", "name", "part", "prescription", "extra", "writer", "memo", "specialNote", "date"];
+    const rows = this.getCurrentRows();
+    let tsvData = "";
+
+    if (this.selectedRange) {
+      // Range copy (TSV grid format)
+      const { minRow, maxRow, minCol, maxCol } = this.selectedRange;
+      const lines = [];
+      for (let r = minRow; r <= maxRow; r++) {
+        const rowVals = [];
+        for (let c = minCol; c <= maxCol; c++) {
+          const k = colKeys[c];
+          rowVals.push(rows[r] ? (rows[r][k] ?? "") : "");
+        }
+        lines.push(rowVals.join("\t"));
+      }
+      tsvData = lines.join("\n");
+    } else if (this.selectedRowIdx !== null && rows[this.selectedRowIdx]) {
+      // Entire row copy
+      const r = rows[this.selectedRowIdx];
+      tsvData = colKeys.map((k) => r[k] ?? "").join("\t");
+    } else if (this.selectedColKey !== null) {
+      // Entire column copy
+      tsvData = rows.map((r) => r[this.selectedColKey] ?? "").join("\n");
+    } else if (this.activeCell && rows[this.activeCell.rowIdx]) {
+      // Single cell copy
+      tsvData = rows[this.activeCell.rowIdx][this.activeCell.colKey] ?? "";
+    }
+
+    if (tsvData) {
+      this.clipboardBuffer = tsvData;
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(tsvData).catch((err) => {
+          console.warn("Clipboard write failed, internal buffer used:", err);
+        });
+      }
+      this.showSaveIndicator("클립보드에 복사됨");
+    }
+  }
+
+  cutSelection() {
+    this.copySelection();
+    this.clearSelection();
+    this.showSaveIndicator("잘라내기 완료됨");
+  }
+
+  async pasteSelection() {
+    let text = "";
+    if (navigator.clipboard && navigator.clipboard.readText) {
+      try {
+        text = await navigator.clipboard.readText();
+      } catch (err) {
+        text = this.clipboardBuffer;
+      }
+    } else {
+      text = this.clipboardBuffer;
+    }
+    if (!text && this.clipboardBuffer) text = this.clipboardBuffer;
+    if (!text) {
+      this.showSaveIndicator("붙여넣을 데이터가 없습니다.", true);
       return;
     }
-    // Ctrl+S or Cmd+S -> Quick Save
-    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") {
+
+    const colKeys = ["no", "gender", "chartNo", "name", "part", "prescription", "extra", "writer", "memo", "specialNote", "date"];
+    const rows = this.getCurrentRows();
+
+    // Parse TSV grid
+    const lines = text.replace(/\r\n/g, "\n").split("\n");
+    if (lines.length > 1 && lines[lines.length - 1] === "") {
+      lines.pop();
+    }
+    const grid = lines.map((l) => l.split("\t"));
+
+    // Determine start coordinate
+    let startRow = 0;
+    let startCol = 0;
+
+    if (this.selectedRange) {
+      startRow = this.selectedRange.minRow;
+      startCol = this.selectedRange.minCol;
+    } else if (this.activeCell) {
+      startRow = this.activeCell.rowIdx;
+      startCol = colKeys.indexOf(this.activeCell.colKey);
+      if (startCol < 0) startCol = 0;
+    } else if (this.selectedRowIdx !== null) {
+      startRow = this.selectedRowIdx;
+      startCol = 0;
+    } else if (this.selectedColKey !== null) {
+      startRow = 0;
+      startCol = colKeys.indexOf(this.selectedColKey);
+      if (startCol < 0) startCol = 0;
+    }
+
+    // Apply grid data to rows
+    grid.forEach((rowVals, rOffset) => {
+      const r = startRow + rOffset;
+      while (r >= rows.length) {
+        this.addNewRow(false);
+      }
+      rowVals.forEach((val, cOffset) => {
+        const c = startCol + cOffset;
+        if (c < colKeys.length) {
+          const k = colKeys[c];
+          if (k && k !== "date") {
+            rows[r][k] = val.trim();
+          }
+        }
+      });
+    });
+
+    this.saveDataStore();
+    this.renderTable();
+    this.showSaveIndicator("붙여넣기 완료됨");
+  }
+
+  clearSelection() {
+    const colKeys = ["no", "gender", "chartNo", "name", "part", "prescription", "extra", "writer", "memo", "specialNote", "date"];
+    const rows = this.getCurrentRows();
+
+    if (this.selectedRange) {
+      const { minRow, maxRow, minCol, maxCol } = this.selectedRange;
+      for (let r = minRow; r <= maxRow; r++) {
+        if (rows[r]) {
+          for (let c = minCol; c <= maxCol; c++) {
+            const k = colKeys[c];
+            if (k && k !== "date") {
+              rows[r][k] = "";
+            }
+          }
+        }
+      }
+    } else if (this.selectedRowIdx !== null) {
+      this.clearRowData(this.selectedRowIdx);
+      return;
+    } else if (this.selectedColKey !== null) {
+      this.clearColData(this.selectedColKey);
+      return;
+    } else if (this.activeCell && rows[this.activeCell.rowIdx]) {
+      const { rowIdx, colKey } = this.activeCell;
+      if (colKey !== "date") {
+        rows[rowIdx][colKey] = "";
+      }
+    }
+
+    this.saveDataStore();
+    this.renderTable();
+    this.showSaveIndicator("내용 지우기 완료");
+  }
+
+  // =============================================================================
+  // Row Manipulations (행 삽입, 행 데이터 삭제, 행 삭제)
+  // =============================================================================
+  insertRowAbove(targetRowIdx) {
+    const rows = this.getCurrentRows();
+    const formattedDate = this.currentDate.replace(/-/g, ".");
+    const newRow = {
+      no: "",
+      gender: "",
+      chartNo: "",
+      name: "",
+      part: "",
+      prescription: "",
+      extra: "",
+      writer: DEFAULT_WRITER,
+      memo: "",
+      specialNote: "",
+      date: formattedDate
+    };
+
+    const insertIdx = Math.max(0, Math.min(targetRowIdx, rows.length));
+    rows.splice(insertIdx, 0, newRow);
+
+    this.saveDataStore();
+    this.renderTable();
+    this.navigateCell(insertIdx, "chartNo");
+    this.showSaveIndicator(`${insertIdx + BASE_ROW_NUMBER}행 위에 1개 행이 삽입되었습니다.`);
+  }
+
+  insertRowBelow(targetRowIdx) {
+    const rows = this.getCurrentRows();
+    const formattedDate = this.currentDate.replace(/-/g, ".");
+    const newRow = {
+      no: "",
+      gender: "",
+      chartNo: "",
+      name: "",
+      part: "",
+      prescription: "",
+      extra: "",
+      writer: DEFAULT_WRITER,
+      memo: "",
+      specialNote: "",
+      date: formattedDate
+    };
+
+    const insertIdx = Math.max(0, Math.min(targetRowIdx + 1, rows.length));
+    rows.splice(insertIdx, 0, newRow);
+
+    this.saveDataStore();
+    this.renderTable();
+    this.navigateCell(insertIdx, "chartNo");
+    this.showSaveIndicator(`${insertIdx + BASE_ROW_NUMBER}행 아래에 1개 행이 삽입되었습니다.`);
+  }
+
+  clearRowData(targetRowIdx) {
+    const rows = this.getCurrentRows();
+    if (rows[targetRowIdx]) {
+      const r = rows[targetRowIdx];
+      r.no = "";
+      r.gender = "";
+      r.chartNo = "";
+      r.name = "";
+      r.part = "";
+      r.prescription = "";
+      r.extra = "";
+      r.memo = "";
+      r.specialNote = "";
+      this.saveDataStore();
+      this.renderTable();
+      this.showSaveIndicator(`${targetRowIdx + BASE_ROW_NUMBER}행 데이터가 삭제되었습니다.`);
+    }
+  }
+
+  deleteRowAt(targetRowIdx) {
+    const rows = this.getCurrentRows();
+    if (targetRowIdx >= 0 && targetRowIdx < rows.length) {
+      rows.splice(targetRowIdx, 1);
+      // Guarantee minimum 150 rows maintained
+      const formattedDate = this.currentDate.replace(/-/g, ".");
+      while (rows.length < DEFAULT_ROW_COUNT) {
+        rows.push({
+          no: "",
+          gender: "",
+          chartNo: "",
+          name: "",
+          part: "",
+          prescription: "",
+          extra: "",
+          writer: DEFAULT_WRITER,
+          memo: "",
+          specialNote: "",
+          date: formattedDate
+        });
+      }
+      this.selectedRowIdx = null;
+      this.saveDataStore();
+      this.renderTable();
+      this.showSaveIndicator(`${targetRowIdx + BASE_ROW_NUMBER}행이 삭제되었습니다.`);
+    }
+  }
+
+  clearColData(colKey) {
+    if (!colKey || colKey === "date") return;
+    const rows = this.getCurrentRows();
+    rows.forEach((r) => {
+      r[colKey] = "";
+    });
+    this.saveDataStore();
+    this.renderTable();
+    this.showSaveIndicator(`${colKey} 열 데이터 비우기 완료`);
+  }
+
+  // =============================================================================
+  // Excel Keyboard Shortcuts Handler (엑셀 기반 키보드 단축키 처리)
+  // =============================================================================
+  handleGlobalKeyDown(e) {
+    // If currently typing in an input/textarea inside a cell or modal
+    if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA") {
+      if (e.key === "Escape") {
+        e.target.blur();
+        this.hideContextMenu();
+      }
+      return;
+    }
+
+    const isCtrlOrMeta = e.ctrlKey || e.metaKey;
+    const keyLower = e.key.toLowerCase();
+
+    // 1) Copy (Ctrl+C / Cmd+C)
+    if (isCtrlOrMeta && keyLower === EXCEL_SHORTCUTS.COPY.key) {
+      e.preventDefault();
+      this.copySelection();
+      return;
+    }
+
+    // 2) Cut (Ctrl+X / Cmd+X)
+    if (isCtrlOrMeta && keyLower === EXCEL_SHORTCUTS.CUT.key) {
+      e.preventDefault();
+      this.cutSelection();
+      return;
+    }
+
+    // 3) Paste (Ctrl+V / Cmd+V)
+    if (isCtrlOrMeta && keyLower === EXCEL_SHORTCUTS.PASTE.key) {
+      e.preventDefault();
+      this.pasteSelection();
+      return;
+    }
+
+    // 4) Select All (Ctrl+A / Cmd+A)
+    if (isCtrlOrMeta && keyLower === EXCEL_SHORTCUTS.SELECT_ALL.key) {
+      e.preventDefault();
+      this.selectAllCells();
+      return;
+    }
+
+    // 5) Quick Save (Ctrl+S / Cmd+S)
+    if (isCtrlOrMeta && keyLower === EXCEL_SHORTCUTS.SAVE.key) {
       e.preventDefault();
       this.saveDataStore();
       return;
     }
-    // Alt + Left / Right -> Date switch
+
+    // 6) Print / Preview Modal (Ctrl+P / Cmd+P)
+    if (isCtrlOrMeta && keyLower === EXCEL_SHORTCUTS.PRINT.key) {
+      e.preventDefault();
+      this.openPreviewModal();
+      return;
+    }
+
+    // 7) Search Focus (Ctrl+F / Cmd+F)
+    if (isCtrlOrMeta && keyLower === EXCEL_SHORTCUTS.SEARCH.key) {
+      e.preventDefault();
+      if (this.elSearchInput) {
+        this.elSearchInput.focus();
+        this.elSearchInput.select();
+      }
+      return;
+    }
+
+    // 8) Insert Row (Ctrl + '+' or Ctrl + '=' or Ctrl + Shift + '=')
+    if (isCtrlOrMeta && (e.key === "+" || e.key === "=" || e.code === "Equal" || e.code === "NumpadAdd")) {
+      e.preventDefault();
+      const r = this.selectedRowIdx ?? (this.activeCell ? this.activeCell.rowIdx : 0);
+      this.insertRowAbove(r);
+      return;
+    }
+
+    // 9) Delete Row (Ctrl + '-' or Ctrl + '_' or NumpadSubtract)
+    if (isCtrlOrMeta && (e.key === "-" || e.key === "_" || e.code === "Minus" || e.code === "NumpadSubtract")) {
+      e.preventDefault();
+      const r = this.selectedRowIdx ?? (this.activeCell ? this.activeCell.rowIdx : 0);
+      this.deleteRowAt(r);
+      return;
+    }
+
+    // 10) Clear Contents (Delete / Backspace)
+    if (e.key === "Delete" || e.key === "Backspace") {
+      e.preventDefault();
+      this.clearSelection();
+      return;
+    }
+
+    // 11) Alt + Left / Right -> Date switch
     if (e.altKey && e.key === "ArrowLeft") {
       e.preventDefault();
       this.shiftDay(-1);
@@ -1557,45 +2104,8 @@ class PTApp {
       return;
     }
 
-    // Delete or Backspace when range or row/col is selected
-    if (e.key === "Delete" || e.key === "Backspace") {
-      if (this.selectedRange) {
-        e.preventDefault();
-        const { minRow, maxRow, minCol, maxCol } = this.selectedRange;
-        const colKeys = ["no", "gender", "chartNo", "name", "part", "prescription", "extra", "writer", "memo", "specialNote", "date"];
-        const rows = this.getCurrentRows();
-        for (let r = minRow; r <= maxRow; r++) {
-          if (rows[r]) {
-            for (let c = minCol; c <= maxCol; c++) {
-              const k = colKeys[c];
-              if (k && k !== "date") {
-                rows[r][k] = "";
-              }
-            }
-          }
-        }
-        this.saveDataStore();
-        this.renderTable();
-        return;
-      }
-      if (this.selectedRowIdx !== null) {
-        e.preventDefault();
-        this.deleteRow(this.selectedRowIdx);
-        this.selectedRowIdx = null;
-        return;
-      }
-      if (this.selectedColKey !== null) {
-        e.preventDefault();
-        const rows = this.getCurrentRows();
-        rows.forEach((r) => { r[this.selectedColKey] = ""; });
-        this.saveDataStore();
-        this.renderTable();
-        return;
-      }
-    }
-
-    // F2 or Enter to start editing focused cell
-    if ((e.key === "F2" || e.key === "Enter") && this.activeCell) {
+    // 12) F2 -> Edit active cell
+    if (e.key === "F2" && this.activeCell) {
       const { rowIdx, colKey } = this.activeCell;
       if (colKey !== "gender") {
         const cellEl = document.querySelector(`.excel-cell[data-row="${rowIdx}"][data-col="${colKey}"]`);
@@ -1607,8 +2117,46 @@ class PTApp {
       }
     }
 
-    // Direct typing to start edit if a cell is focused
-    if (this.activeCell && e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
+    // 13) Enter / Shift+Enter -> Move Down / Up
+    if (e.key === "Enter" && this.activeCell) {
+      e.preventDefault();
+      const nextRow = this.activeCell.rowIdx + (e.shiftKey ? -1 : 1);
+      this.navigateCell(Math.max(0, nextRow), this.activeCell.colKey);
+      return;
+    }
+
+    // 14) Tab / Shift+Tab -> Move Next / Prev Column
+    if (e.key === "Tab" && this.activeCell) {
+      e.preventDefault();
+      this.navigateCol(this.activeCell.rowIdx, this.activeCell.colKey, e.shiftKey ? -1 : 1);
+      return;
+    }
+
+    // 15) Arrow Keys Navigation (위/아래/좌/우 셀 이동)
+    if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(e.key) && this.activeCell) {
+      e.preventDefault();
+      const { rowIdx, colKey } = this.activeCell;
+      const colOrder = ["no", "gender", "chartNo", "name", "part", "prescription", "extra", "writer", "memo", "specialNote", "date"];
+      const colIdx = colOrder.indexOf(colKey);
+
+      let targetRow = rowIdx;
+      let targetColIdx = colIdx;
+
+      if (e.key === "ArrowUp") targetRow = Math.max(0, rowIdx - 1);
+      if (e.key === "ArrowDown") targetRow = rowIdx + 1;
+      if (e.key === "ArrowLeft") targetColIdx = Math.max(0, colIdx - 1);
+      if (e.key === "ArrowRight") targetColIdx = Math.min(colOrder.length - 1, colIdx + 1);
+
+      const targetColKey = colOrder[targetColIdx];
+      const targetCell = document.querySelector(`.excel-cell[data-row="${targetRow}"][data-col="${targetColKey}"]`);
+      if (targetCell) {
+        this.selectCell(targetRow, targetColKey, targetCell, false);
+      }
+      return;
+    }
+
+    // 16) Direct character typing to begin editing
+    if (this.activeCell && e.key.length === 1 && !isCtrlOrMeta && !e.altKey) {
       const { rowIdx, colKey } = this.activeCell;
       if (colKey !== "gender") {
         const cellEl = document.querySelector(`.excel-cell[data-row="${rowIdx}"][data-col="${colKey}"]`);
@@ -1618,8 +2166,9 @@ class PTApp {
       }
     }
 
-    // Escape -> Clear selections
+    // 17) Escape -> Hide context menu & clear selection highlights
     if (e.key === "Escape") {
+      this.hideContextMenu();
       this.clearHeaderSelections();
       document.querySelectorAll(".cell-focused").forEach((c) => c.classList.remove("cell-focused"));
       this.activeCell = null;
