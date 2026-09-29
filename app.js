@@ -489,8 +489,8 @@ class PTApp {
           this.updateRangeSelection();
         });
 
-        // Cell Click handler (Secondary click for edit, or gender toggle)
-        td.addEventListener("click", (e) => {
+        // Cell Click handler (Gender toggle only)
+        td.addEventListener("click", () => {
           if (key === "gender") {
             const current = row.gender;
             let next = "";
@@ -504,17 +504,6 @@ class PTApp {
             if (next === "M") td.classList.add("m");
             this.elFormulaInput.value = next;
             this.saveDataStore();
-            return;
-          }
-
-          // If clicking an already active cell, enter inline edit mode
-          if (
-            this.activeCell &&
-            this.activeCell.rowIdx === rowIdx &&
-            this.activeCell.colKey === key &&
-            !td.querySelector("input")
-          ) {
-            this.startInlineEdit(rowIdx, key, td);
           }
         });
 
@@ -1602,6 +1591,19 @@ class PTApp {
         this.saveDataStore();
         this.renderTable();
         return;
+      }
+    }
+
+    // F2 or Enter to start editing focused cell
+    if ((e.key === "F2" || e.key === "Enter") && this.activeCell) {
+      const { rowIdx, colKey } = this.activeCell;
+      if (colKey !== "gender") {
+        const cellEl = document.querySelector(`.excel-cell[data-row="${rowIdx}"][data-col="${colKey}"]`);
+        if (cellEl && !cellEl.querySelector("input")) {
+          e.preventDefault();
+          this.startInlineEdit(rowIdx, colKey, cellEl);
+          return;
+        }
       }
     }
 
